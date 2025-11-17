@@ -1,4 +1,4 @@
-// transactionController.js - COMPLETELY FIXED VERSION
+// transactionController.js - FIXED to handle icon/color
 import Transaction from "../models/transaction.js";
 import Budget from "../models/budget.js";
 import mongoose from "mongoose";
@@ -90,10 +90,13 @@ export const createTransaction = async (req, res) => {
       if (categoryBudget) {
         categoryBudget.spentAmount += parseFloat(amount);
       } else {
+        // ✅ NEW: Create with default icon/color if category doesn't exist
         budget.categoryBudgets.push({
           category: category.trim(),
           budgetAmount: 0,
           spentAmount: parseFloat(amount),
+          icon: "category",
+          color: "#2196F3",
         });
       }
 
@@ -115,6 +118,108 @@ export const createTransaction = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to create transaction",
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+// ==================== UPDATE TRANSACTION ====================
+export const updateTransaction = async (req, res) => {
+  const session = await mongoose.startSession();
+  
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const { category, amount, description, type, date } = req.body;
+
+    await session.startTransaction();
+
+    const transaction = await Transaction.findOne({ _id: id, userId }).session(session);
+
+    if (!transaction) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "Transaction not found",
+      });
+    }
+
+    // Store old values for budget adjustment
+    const oldAmount = transaction.amount;
+    const oldCategory = transaction.category;
+    const oldType = transaction.type;
+
+    // Remove old expense from budget
+    if (oldType === "expense") {
+      const budget = await Budget.findOne({ userId }).session(session);
+      
+      if (budget) {
+        budget.totalSpent = Math.max(0, budget.totalSpent - oldAmount);
+
+        const categoryBudget = budget.categoryBudgets.find(
+          (cat) => cat.category === oldCategory
+        );
+
+        if (categoryBudget) {
+          categoryBudget.spentAmount = Math.max(0, categoryBudget.spentAmount - oldAmount);
+        }
+
+        await budget.save({ session });
+      }
+    }
+
+    // Update transaction fields
+    if (category && category.trim()) transaction.category = category.trim();
+    if (amount && amount > 0) transaction.amount = parseFloat(amount);
+    if (description !== undefined) transaction.description = description?.trim() || "";
+    if (type && ["expense", "income"].includes(type)) transaction.type = type;
+    if (date) transaction.date = new Date(date);
+
+    await transaction.save({ session });
+
+    // Add new expense to budget
+    if (transaction.type === "expense") {
+      const budget = await Budget.findOne({ userId }).session(session);
+      
+      if (budget) {
+        budget.totalSpent += transaction.amount;
+
+        const categoryBudget = budget.categoryBudgets.find(
+          (cat) => cat.category === transaction.category
+        );
+
+        if (categoryBudget) {
+          categoryBudget.spentAmount += transaction.amount;
+        } else {
+          // ✅ NEW: Create with default icon/color if category doesn't exist
+          budget.categoryBudgets.push({
+            category: transaction.category,
+            budgetAmount: 0,
+            spentAmount: transaction.amount,
+            icon: "category",
+            color: "#2196F3",
+          });
+        }
+
+        await budget.save({ session });
+      }
+    }
+
+    await session.commitTransaction();
+
+    res.json({
+      success: true,
+      message: "Transaction updated successfully",
+      transaction,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("Update Transaction Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update transaction",
       error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   } finally {
@@ -208,105 +313,6 @@ export const getTransaction = async (req, res) => {
       message: "Failed to get transaction",
       error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
-  }
-};
-
-// ==================== UPDATE TRANSACTION ====================
-export const updateTransaction = async (req, res) => {
-  const session = await mongoose.startSession();
-  
-  try {
-    const userId = req.user.id;
-    const { id } = req.params;
-    const { category, amount, description, type, date } = req.body;
-
-    await session.startTransaction();
-
-    const transaction = await Transaction.findOne({ _id: id, userId }).session(session);
-
-    if (!transaction) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Transaction not found",
-      });
-    }
-
-    // Store old values for budget adjustment
-    const oldAmount = transaction.amount;
-    const oldCategory = transaction.category;
-    const oldType = transaction.type;
-
-    // Remove old expense from budget
-    if (oldType === "expense") {
-      const budget = await Budget.findOne({ userId }).session(session);
-      
-      if (budget) {
-        budget.totalSpent = Math.max(0, budget.totalSpent - oldAmount);
-
-        const categoryBudget = budget.categoryBudgets.find(
-          (cat) => cat.category === oldCategory
-        );
-
-        if (categoryBudget) {
-          categoryBudget.spentAmount = Math.max(0, categoryBudget.spentAmount - oldAmount);
-        }
-
-        await budget.save({ session });
-      }
-    }
-
-    // Update transaction fields
-    if (category && category.trim()) transaction.category = category.trim();
-    if (amount && amount > 0) transaction.amount = parseFloat(amount);
-    if (description !== undefined) transaction.description = description?.trim() || "";
-    if (type && ["expense", "income"].includes(type)) transaction.type = type;
-    if (date) transaction.date = new Date(date);
-
-    await transaction.save({ session });
-
-    // Add new expense to budget
-    if (transaction.type === "expense") {
-      const budget = await Budget.findOne({ userId }).session(session);
-      
-      if (budget) {
-        budget.totalSpent += transaction.amount;
-
-        const categoryBudget = budget.categoryBudgets.find(
-          (cat) => cat.category === transaction.category
-        );
-
-        if (categoryBudget) {
-          categoryBudget.spentAmount += transaction.amount;
-        } else {
-          budget.categoryBudgets.push({
-            category: transaction.category,
-            budgetAmount: 0,
-            spentAmount: transaction.amount,
-          });
-        }
-
-        await budget.save({ session });
-      }
-    }
-
-    await session.commitTransaction();
-
-    res.json({
-      success: true,
-      message: "Transaction updated successfully",
-      transaction,
-    });
-  } catch (error) {
-    await session.abortTransaction();
-    console.error("Update Transaction Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to update transaction",
-      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
-    });
-  } finally {
-    session.endSession();
   }
 };
 

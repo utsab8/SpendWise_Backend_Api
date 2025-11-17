@@ -13,6 +13,22 @@ const categoryBudgetSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // ✅ NEW FIELDS for category customization
+  icon: {
+    type: String,
+    default: "category", // Default icon name
+  },
+  color: {
+    type: String,
+    default: "#2196F3", // Default blue color
+    validate: {
+      validator: function(v) {
+        // Validate hex color format
+        return /^#[0-9A-F]{6}$/i.test(v);
+      },
+      message: props => `${props.value} is not a valid hex color!`
+    }
+  },
 });
 
 const budgetSchema = new mongoose.Schema(

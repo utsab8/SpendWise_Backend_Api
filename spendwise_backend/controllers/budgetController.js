@@ -1,4 +1,4 @@
-// budgetController.js - COMPLETELY FIXED VERSION
+// budgetController.js - UPDATED WITH ICON & COLOR SUPPORT
 import Budget from "../models/budget.js";
 import mongoose from "mongoose";
 
@@ -29,7 +29,7 @@ export const getUserBudget = async (req, res) => {
         budgetUsedPercentage: budget.totalBudget > 0 
           ? Math.round((budget.totalSpent / budget.totalBudget) * 100) 
           : 0,
-        categoryBudgets: budget.categoryBudgets,
+        categoryBudgets: budget.categoryBudgets, // ✅ Now includes icon & color
         month: budget.month,
       },
     });
@@ -116,7 +116,7 @@ export const updateCategoryBudgets = async (req, res) => {
       });
     }
 
-    // Update category budgets - preserve existing spent amounts
+    // ✅ Update category budgets - preserve existing spent amounts & handle icon/color
     const updatedCategories = categoryBudgets.map(cat => {
       const existing = budget.categoryBudgets.find(
         existing => existing.category === cat.category
@@ -126,6 +126,9 @@ export const updateCategoryBudgets = async (req, res) => {
         category: cat.category,
         budgetAmount: parseFloat(cat.budgetAmount) || 0,
         spentAmount: existing ? existing.spentAmount : 0,
+        // ✅ NEW: Handle icon and color
+        icon: cat.icon || (existing ? existing.icon : "category"),
+        color: cat.color || (existing ? existing.color : "#2196F3"),
       };
     });
 
@@ -177,7 +180,7 @@ export const updateFullBudget = async (req, res) => {
       budget.totalBudget = parseFloat(totalBudget);
     }
 
-    // Update category budgets if provided
+    // ✅ Update category budgets if provided
     if (categoryBudgets && Array.isArray(categoryBudgets)) {
       const updatedCategories = categoryBudgets.map(cat => {
         const existing = budget.categoryBudgets.find(
@@ -188,6 +191,9 @@ export const updateFullBudget = async (req, res) => {
           category: cat.category,
           budgetAmount: parseFloat(cat.budgetAmount) || 0,
           spentAmount: existing ? existing.spentAmount : (parseFloat(cat.spentAmount) || 0),
+          // ✅ NEW: Handle icon and color
+          icon: cat.icon || (existing ? existing.icon : "category"),
+          color: cat.color || (existing ? existing.color : "#2196F3"),
         };
       });
 
@@ -209,7 +215,7 @@ export const updateFullBudget = async (req, res) => {
         budgetUsedPercentage: budget.totalBudget > 0 
           ? Math.round((budget.totalSpent / budget.totalBudget) * 100) 
           : 0,
-        categoryBudgets: budget.categoryBudgets,
+        categoryBudgets: budget.categoryBudgets, // ✅ Now includes icon & color
       },
     });
   } catch (error) {
@@ -272,10 +278,13 @@ export const addExpense = async (req, res) => {
     if (categoryBudget) {
       categoryBudget.spentAmount += expenseAmount;
     } else {
+      // ✅ NEW: Create with default icon/color if category doesn't exist
       budget.categoryBudgets.push({
         category: category.trim(),
         budgetAmount: 0,
         spentAmount: expenseAmount,
+        icon: "category",
+        color: "#2196F3",
       });
     }
 
@@ -333,10 +342,11 @@ export const resetBudget = async (req, res) => {
       });
     }
 
-    // Reset spent amounts but keep budget allocations
+    // Reset spent amounts but keep budget allocations (and icon/color!)
     budget.totalSpent = 0;
     budget.categoryBudgets.forEach(cat => {
       cat.spentAmount = 0;
+      // ✅ Icon and color are preserved automatically
     });
     
     // Update month to current
@@ -355,7 +365,7 @@ export const resetBudget = async (req, res) => {
         totalBudget: budget.totalBudget,
         totalSpent: budget.totalSpent,
         budgetLeft: budget.totalBudget,
-        categoryBudgets: budget.categoryBudgets,
+        categoryBudgets: budget.categoryBudgets, // ✅ Includes icon & color
         month: budget.month,
       },
     });
