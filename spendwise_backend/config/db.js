@@ -8,20 +8,22 @@ if (process.env.NODE_ENV !== 'production') {
 
 const connectDB = async () => {
   try {
-    // ✅ Validate MONGO_URI exists
-    if (!process.env.MONGO_URI) {
-      console.error("❌ CRITICAL ERROR: MONGO_URI is not defined!");
+    // ✅ Check for both MONGO_URI and MONGODB_URI (Render uses MONGODB_URI)
+    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+    
+    if (!mongoUri) {
+      console.error("❌ CRITICAL ERROR: MONGO_URI or MONGODB_URI is not defined!");
       console.error("📋 Available env vars:", Object.keys(process.env).filter(k => 
         k.includes('MONGO') || k.includes('NODE') || k.includes('PORT')
       ));
       console.error("\n💡 Solutions:");
       console.error("  Local: Make sure .env file exists with MONGO_URI");
-      console.error("  Render: Add MONGO_URI in Dashboard > Environment");
+      console.error("  Render: Add MONGO_URI or MONGODB_URI in Dashboard > Environment");
       process.exit(1);
     }
 
     // Hide password in logs
-    const safeUri = process.env.MONGO_URI.replace(/:[^:]*@/, ':****@');
+    const safeUri = mongoUri.replace(/:[^:]*@/, ':****@');
     console.log("🔄 Connecting to MongoDB...");
     console.log("📍 URI:", safeUri);
     console.log("🌍 Environment:", process.env.NODE_ENV || 'development');
