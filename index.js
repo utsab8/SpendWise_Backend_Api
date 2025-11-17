@@ -8,7 +8,14 @@ import budgetRoutes from "./spendwise_backend/routes/budgetRoutes.js";
 import transactionRoutes from "./spendwise_backend/routes/transactionRoutes.js";
 import profileRoutes from "./spendwise_backend/routes/profileRoutes.js";
 
-dotenv.config();
+// ✅ Only load .env in development (local), not in production (Render)
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+  console.log('📁 Loaded .env file (development mode)');
+} else {
+  console.log('☁️  Using environment variables from hosting platform');
+}
+
 const app = express();
 
 // Connect to MongoDB
@@ -45,6 +52,7 @@ app.get("/", (req, res) => {
     version: "1.3.0",
     status: "healthy",
     timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
     endpoints: {
       auth: "/api/auth",
       budget: "/api/budget",
