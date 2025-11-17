@@ -1,18 +1,18 @@
-// transactionController.js - COMPLETE UPDATED VERSION
+// transactionController.js - COMPLETELY FIXED VERSION
 import Transaction from "../models/transaction.js";
 import Budget from "../models/budget.js";
+import mongoose from "mongoose";
 
 // ==================== HELPER FUNCTIONS ====================
 
-// Helper function to get or create budget
-async function getOrCreateBudget(userId) {
+// Helper to ensure budget exists
+async function ensureBudgetExists(userId) {
   let budget = await Budget.findOne({ userId });
   
   if (!budget) {
-    // Create minimal budget - user must set it up properly later
     budget = new Budget({
       userId,
-      totalBudget: 0,  // Start with 0, force user to set budget
+      totalBudget: 0,
       totalSpent: 0,
       categoryBudgets: [],
     });
@@ -22,55 +22,10 @@ async function getOrCreateBudget(userId) {
   return budget;
 }
 
-// Helper function to update budget for expense
-async function updateBudgetForExpense(userId, category, amount) {
-  const budget = await getOrCreateBudget(userId);
-  
-  budget.totalSpent += amount;
-
-  const categoryBudget = budget.categoryBudgets.find(
-    (cat) => cat.category === category
-  );
-
-  if (categoryBudget) {
-    categoryBudget.spentAmount += amount;
-  } else {
-    // Warn: Category not in budget plan, but still track spending
-    budget.categoryBudgets.push({
-      category,
-      budgetAmount: 0,  // Not allocated, but track it
-      spentAmount: amount,
-    });
-  }
-
-  await budget.save();
-  return budget;
-}
-
-// Helper function to remove expense from budget
-async function removeBudgetExpense(userId, category, amount) {
-  const budget = await Budget.findOne({ userId });
-  
-  if (!budget) return null;
-  
-  budget.totalSpent = Math.max(0, budget.totalSpent - amount);
-
-  const categoryBudget = budget.categoryBudgets.find(
-    (cat) => cat.category === category
-  );
-
-  if (categoryBudget) {
-    categoryBudget.spentAmount = Math.max(0, categoryBudget.spentAmount - amount);
-  }
-
-  await budget.save();
-  return budget;
-}
-
-// ==================== MAIN CONTROLLERS ====================
-
-// CREATE TRANSACTION
+// ==================== CREATE TRANSACTION ====================
 export const createTransaction = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.user.id;
     const { category, amount, description, type, date } = req.body;
@@ -99,8 +54,14 @@ export const createTransaction = async (req, res) => {
       });
     }
 
+    // Start transaction
+    await session.startTransaction();
+
+    // Ensure budget exists
+    await ensureBudgetExists(userId);
+
     // Create transaction
-    const transaction = new Transaction({
+    const transactionDoc = new Transaction({
       userId,
       category: category.trim(),
       amount: parseFloat(amount),
@@ -109,29 +70,59 @@ export const createTransaction = async (req, res) => {
       date: date ? new Date(date) : new Date(),
     });
 
-    await transaction.save();
+    await transactionDoc.save({ session });
 
-    // Update budget ONLY for expenses (not income)
+    // Update budget ONLY for expenses
     if (transactionType === "expense") {
-      await updateBudgetForExpense(userId, transaction.category, transaction.amount);
+      const budget = await Budget.findOne({ userId }).session(session);
+      
+      if (!budget) {
+        throw new Error("Budget not found after creation");
+      }
+
+      budget.totalSpent += parseFloat(amount);
+
+      // Find or create category budget
+      const categoryBudget = budget.categoryBudgets.find(
+        (cat) => cat.category === category.trim()
+      );
+
+      if (categoryBudget) {
+        categoryBudget.spentAmount += parseFloat(amount);
+      } else {
+        budget.categoryBudgets.push({
+          category: category.trim(),
+          budgetAmount: 0,
+          spentAmount: parseFloat(amount),
+        });
+      }
+
+      await budget.save({ session });
     }
+
+    // Commit transaction
+    await session.commitTransaction();
 
     res.status(201).json({
       success: true,
       message: "Transaction created successfully",
-      transaction,
+      transaction: transactionDoc,
     });
+
   } catch (error) {
+    await session.abortTransaction();
     console.error("Create Transaction Error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to create transaction",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
+  } finally {
+    session.endSession();
   }
 };
 
-// GET ALL TRANSACTIONS (with filters)
+// ==================== GET ALL TRANSACTIONS ====================
 export const getTransactions = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -166,7 +157,8 @@ export const getTransactions = async (req, res) => {
     const transactions = await Transaction.find(query)
       .sort({ [sortField]: sortOrder === "desc" ? -1 : 1 })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .lean();
 
     const total = await Transaction.countDocuments(query);
 
@@ -185,18 +177,18 @@ export const getTransactions = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get transactions",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// GET SINGLE TRANSACTION
+// ==================== GET SINGLE TRANSACTION ====================
 export const getTransaction = async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
 
-    const transaction = await Transaction.findOne({ _id: id, userId });
+    const transaction = await Transaction.findOne({ _id: id, userId }).lean();
 
     if (!transaction) {
       return res.status(404).json({
@@ -214,21 +206,26 @@ export const getTransaction = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get transaction",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// UPDATE TRANSACTION
+// ==================== UPDATE TRANSACTION ====================
 export const updateTransaction = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.user.id;
     const { id } = req.params;
     const { category, amount, description, type, date } = req.body;
 
-    const transaction = await Transaction.findOne({ _id: id, userId });
+    await session.startTransaction();
+
+    const transaction = await Transaction.findOne({ _id: id, userId }).session(session);
 
     if (!transaction) {
+      await session.abortTransaction();
       return res.status(404).json({
         success: false,
         message: "Transaction not found",
@@ -242,7 +239,21 @@ export const updateTransaction = async (req, res) => {
 
     // Remove old expense from budget
     if (oldType === "expense") {
-      await removeBudgetExpense(userId, oldCategory, oldAmount);
+      const budget = await Budget.findOne({ userId }).session(session);
+      
+      if (budget) {
+        budget.totalSpent = Math.max(0, budget.totalSpent - oldAmount);
+
+        const categoryBudget = budget.categoryBudgets.find(
+          (cat) => cat.category === oldCategory
+        );
+
+        if (categoryBudget) {
+          categoryBudget.spentAmount = Math.max(0, categoryBudget.spentAmount - oldAmount);
+        }
+
+        await budget.save({ session });
+      }
     }
 
     // Update transaction fields
@@ -252,12 +263,34 @@ export const updateTransaction = async (req, res) => {
     if (type && ["expense", "income"].includes(type)) transaction.type = type;
     if (date) transaction.date = new Date(date);
 
-    await transaction.save();
+    await transaction.save({ session });
 
     // Add new expense to budget
     if (transaction.type === "expense") {
-      await updateBudgetForExpense(userId, transaction.category, transaction.amount);
+      const budget = await Budget.findOne({ userId }).session(session);
+      
+      if (budget) {
+        budget.totalSpent += transaction.amount;
+
+        const categoryBudget = budget.categoryBudgets.find(
+          (cat) => cat.category === transaction.category
+        );
+
+        if (categoryBudget) {
+          categoryBudget.spentAmount += transaction.amount;
+        } else {
+          budget.categoryBudgets.push({
+            category: transaction.category,
+            budgetAmount: 0,
+            spentAmount: transaction.amount,
+          });
+        }
+
+        await budget.save({ session });
+      }
     }
+
+    await session.commitTransaction();
 
     res.json({
       success: true,
@@ -265,24 +298,32 @@ export const updateTransaction = async (req, res) => {
       transaction,
     });
   } catch (error) {
+    await session.abortTransaction();
     console.error("Update Transaction Error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to update transaction",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
+  } finally {
+    session.endSession();
   }
 };
 
-// DELETE TRANSACTION
+// ==================== DELETE TRANSACTION ====================
 export const deleteTransaction = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.user.id;
     const { id } = req.params;
 
-    const transaction = await Transaction.findOne({ _id: id, userId });
+    await session.startTransaction();
+
+    const transaction = await Transaction.findOne({ _id: id, userId }).session(session);
 
     if (!transaction) {
+      await session.abortTransaction();
       return res.status(404).json({
         success: false,
         message: "Transaction not found",
@@ -291,26 +332,45 @@ export const deleteTransaction = async (req, res) => {
 
     // Remove expense from budget
     if (transaction.type === "expense") {
-      await removeBudgetExpense(userId, transaction.category, transaction.amount);
+      const budget = await Budget.findOne({ userId }).session(session);
+      
+      if (budget) {
+        budget.totalSpent = Math.max(0, budget.totalSpent - transaction.amount);
+
+        const categoryBudget = budget.categoryBudgets.find(
+          (cat) => cat.category === transaction.category
+        );
+
+        if (categoryBudget) {
+          categoryBudget.spentAmount = Math.max(0, categoryBudget.spentAmount - transaction.amount);
+        }
+
+        await budget.save({ session });
+      }
     }
 
-    await Transaction.deleteOne({ _id: id, userId });
+    await Transaction.deleteOne({ _id: id, userId }).session(session);
+
+    await session.commitTransaction();
 
     res.json({
       success: true,
       message: "Transaction deleted successfully",
     });
   } catch (error) {
+    await session.abortTransaction();
     console.error("Delete Transaction Error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete transaction",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
+  } finally {
+    session.endSession();
   }
 };
 
-// GET SPENDING SUMMARY
+// ==================== GET SPENDING SUMMARY ====================
 export const getSpendingSummary = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -323,10 +383,10 @@ export const getSpendingSummary = async (req, res) => {
       if (endDate) dateQuery.date.$lte = new Date(endDate);
     }
 
-    const transactions = await Transaction.find(dateQuery);
+    const transactions = await Transaction.find(dateQuery).lean();
 
     let totalIncome = 0;
-    let totalExpenses = 0;  // Changed from totalExpense for consistency
+    let totalExpenses = 0;
     const categoryBreakdown = {};
 
     transactions.forEach((transaction) => {
@@ -346,7 +406,7 @@ export const getSpendingSummary = async (req, res) => {
       success: true,
       summary: {
         totalIncome,
-        totalExpenses,  // Consistent naming
+        totalExpenses,
         netAmount: totalIncome - totalExpenses,
         categoryBreakdown,
         transactionCount: transactions.length,
@@ -357,20 +417,21 @@ export const getSpendingSummary = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get spending summary",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// GET RECENT ACTIVITIES
+// ==================== GET RECENT ACTIVITIES ====================
 export const getRecentActivities = async (req, res) => {
   try {
     const userId = req.user.id;
-    const limit = Math.min(parseInt(req.query.limit) || 10, 50); // Max 50
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50);
 
     const transactions = await Transaction.find({ userId })
       .sort({ date: -1 })
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     res.json({
       success: true,
@@ -381,12 +442,12 @@ export const getRecentActivities = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get recent activities",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// GET TRANSACTIONS GROUPED BY DATE
+// ==================== GET TRANSACTIONS GROUPED BY DATE ====================
 export const getTransactionsGroupedByDate = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -399,7 +460,7 @@ export const getTransactionsGroupedByDate = async (req, res) => {
       if (endDate) query.date.$lte = new Date(endDate);
     }
 
-    const transactions = await Transaction.find(query).sort({ date: -1 });
+    const transactions = await Transaction.find(query).sort({ date: -1 }).lean();
 
     const grouped = {};
     transactions.forEach((transaction) => {
@@ -419,12 +480,12 @@ export const getTransactionsGroupedByDate = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get grouped transactions",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// GET TRANSACTIONS BY CATEGORY
+// ==================== GET TRANSACTIONS BY CATEGORY ====================
 export const getTransactionsByCategory = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -437,7 +498,7 @@ export const getTransactionsByCategory = async (req, res) => {
       if (endDate) query.date.$lte = new Date(endDate);
     }
 
-    const transactions = await Transaction.find(query);
+    const transactions = await Transaction.find(query).lean();
 
     const categoryData = {};
     transactions.forEach((transaction) => {
@@ -462,7 +523,7 @@ export const getTransactionsByCategory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to get category transactions",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };

@@ -1,18 +1,19 @@
-// budgetController.js - FIXED VERSION
+// budgetController.js - COMPLETELY FIXED VERSION
 import Budget from "../models/budget.js";
+import mongoose from "mongoose";
 
-// GET USER BUDGET
+// ==================== GET USER BUDGET ====================
 export const getUserBudget = async (req, res) => {
   try {
     const userId = req.user.id;
     
     let budget = await Budget.findOne({ userId });
     
-    // If no budget exists, create minimal one (user must set it up)
+    // If no budget exists, create minimal one
     if (!budget) {
       budget = new Budget({
         userId,
-        totalBudget: 0,  // ✅ Fixed: Start with 0, not 40000
+        totalBudget: 0,
         totalSpent: 0,
         categoryBudgets: [],
       });
@@ -33,16 +34,16 @@ export const getUserBudget = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Get Budget Error:", error);
+    console.error("❌ Get Budget Error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Failed to get budget", 
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// UPDATE TOTAL BUDGET
+// ==================== UPDATE TOTAL BUDGET ====================
 export const updateTotalBudget = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -82,16 +83,16 @@ export const updateTotalBudget = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Update Total Budget Error:", error);
+    console.error("❌ Update Total Budget Error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Failed to update budget", 
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// UPDATE CATEGORY BUDGETS
+// ==================== UPDATE CATEGORY BUDGETS ====================
 export const updateCategoryBudgets = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -124,7 +125,6 @@ export const updateCategoryBudgets = async (req, res) => {
       return {
         category: cat.category,
         budgetAmount: parseFloat(cat.budgetAmount) || 0,
-        // ✅ Preserve existing spent amount if updating budget allocation
         spentAmount: existing ? existing.spentAmount : 0,
       };
     });
@@ -138,17 +138,19 @@ export const updateCategoryBudgets = async (req, res) => {
       categoryBudgets: budget.categoryBudgets,
     });
   } catch (error) {
-    console.error("Update Category Budgets Error:", error);
+    console.error("❌ Update Category Budgets Error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Failed to update category budgets", 
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
 };
 
-// UPDATE FULL BUDGET (Total + Categories)
+// ==================== UPDATE FULL BUDGET ====================
 export const updateFullBudget = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.user.id;
     const { totalBudget, categoryBudgets } = req.body;
@@ -160,7 +162,9 @@ export const updateFullBudget = async (req, res) => {
       });
     }
 
-    let budget = await Budget.findOne({ userId });
+    await session.startTransaction();
+
+    let budget = await Budget.findOne({ userId }).session(session);
     
     if (!budget) {
       budget = new Budget({ 
@@ -183,7 +187,6 @@ export const updateFullBudget = async (req, res) => {
         return {
           category: cat.category,
           budgetAmount: parseFloat(cat.budgetAmount) || 0,
-          // ✅ Preserve existing spent amount
           spentAmount: existing ? existing.spentAmount : (parseFloat(cat.spentAmount) || 0),
         };
       });
@@ -191,7 +194,10 @@ export const updateFullBudget = async (req, res) => {
       budget.categoryBudgets = updatedCategories;
     }
 
-    await budget.save();
+    await budget.save({ session });
+    await session.commitTransaction();
+
+    console.log(`✅ Budget updated for user ${userId}: Total=${budget.totalBudget}, Categories=${budget.categoryBudgets.length}`);
 
     res.json({
       success: true,
@@ -207,17 +213,22 @@ export const updateFullBudget = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Update Full Budget Error:", error);
+    await session.abortTransaction();
+    console.error("❌ Update Full Budget Error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Failed to update budget", 
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
+  } finally {
+    session.endSession();
   }
 };
 
-// ADD EXPENSE (Legacy - prefer using transaction API)
+// ==================== ADD EXPENSE (DEPRECATED - Use Transaction API) ====================
 export const addExpense = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.user.id;
     const { category, amount, description } = req.body;
@@ -236,9 +247,12 @@ export const addExpense = async (req, res) => {
       });
     }
 
-    let budget = await Budget.findOne({ userId });
+    await session.startTransaction();
+
+    let budget = await Budget.findOne({ userId }).session(session);
     
     if (!budget) {
+      await session.abortTransaction();
       return res.status(404).json({ 
         success: false, 
         message: "Budget not found. Please set up your budget first." 
@@ -258,7 +272,6 @@ export const addExpense = async (req, res) => {
     if (categoryBudget) {
       categoryBudget.spentAmount += expenseAmount;
     } else {
-      // Category doesn't exist in budget - create it with 0 allocation
       budget.categoryBudgets.push({
         category: category.trim(),
         budgetAmount: 0,
@@ -266,7 +279,10 @@ export const addExpense = async (req, res) => {
       });
     }
 
-    await budget.save();
+    await budget.save({ session });
+    await session.commitTransaction();
+
+    console.log(`✅ Expense added: ${category} - NPR ${expenseAmount}`);
 
     res.json({
       success: true,
@@ -286,37 +302,36 @@ export const addExpense = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Add Expense Error:", error);
+    await session.abortTransaction();
+    console.error("❌ Add Expense Error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Failed to add expense", 
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
+  } finally {
+    session.endSession();
   }
 };
 
-// RESET BUDGET (for new month)
+// ==================== RESET BUDGET ====================
 export const resetBudget = async (req, res) => {
+  const session = await mongoose.startSession();
+  
   try {
     const userId = req.user.id;
 
-    let budget = await Budget.findOne({ userId });
+    await session.startTransaction();
+
+    let budget = await Budget.findOne({ userId }).session(session);
     
     if (!budget) {
+      await session.abortTransaction();
       return res.status(404).json({ 
         success: false, 
         message: "Budget not found" 
       });
     }
-
-    // ✅ Optional: Save history before reset (implement BudgetHistory model)
-    // await BudgetHistory.create({
-    //   userId,
-    //   totalBudget: budget.totalBudget,
-    //   totalSpent: budget.totalSpent,
-    //   categoryBudgets: budget.categoryBudgets,
-    //   month: budget.month,
-    // });
 
     // Reset spent amounts but keep budget allocations
     budget.totalSpent = 0;
@@ -328,7 +343,10 @@ export const resetBudget = async (req, res) => {
     const currentMonth = new Date().toISOString().slice(0, 7);
     budget.month = currentMonth;
 
-    await budget.save();
+    await budget.save({ session });
+    await session.commitTransaction();
+
+    console.log(`✅ Budget reset for user ${userId} - Month: ${currentMonth}`);
 
     res.json({
       success: true,
@@ -342,11 +360,14 @@ export const resetBudget = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Reset Budget Error:", error);
+    await session.abortTransaction();
+    console.error("❌ Reset Budget Error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Failed to reset budget", 
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
+  } finally {
+    session.endSession();
   }
 };
