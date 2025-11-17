@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Environment variables
+# Environment variables - CRITICAL: These must be ignored!
 .env
 .env.local
 .env.development.local

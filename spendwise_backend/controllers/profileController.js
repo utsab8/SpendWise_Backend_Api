@@ -1,5 +1,5 @@
 import User from "../models/user.js";
-import { cloudinary, uploadToCloudinary } from "../config/cloudinary.js";
+import { uploadToCloudinary, deleteFromCloudinary } from "../config/cloudinary.js";
 
 // GET USER PROFILE
 export const getUserProfile = async (req, res) => {
@@ -42,6 +42,14 @@ export const updateUserProfile = async (req, res) => {
     const userId = req.user.id;
     const { fullName, number } = req.body;
 
+    // Validate input
+    if (!fullName && !number) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide at least one field to update",
+      });
+    }
+
     const user = await User.findById(userId);
 
     if (!user) {
@@ -51,9 +59,28 @@ export const updateUserProfile = async (req, res) => {
       });
     }
 
-    // Update fields
-    if (fullName) user.fullName = fullName.trim();
-    if (number) user.number = number.trim();
+    // Update fields with validation
+    if (fullName) {
+      const trimmedName = fullName.trim();
+      if (trimmedName.length < 2) {
+        return res.status(400).json({
+          success: false,
+          message: "Name must be at least 2 characters long",
+        });
+      }
+      user.fullName = trimmedName;
+    }
+
+    if (number) {
+      const trimmedNumber = number.trim();
+      if (trimmedNumber.length < 7) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number must be at least 7 digits",
+        });
+      }
+      user.number = trimmedNumber;
+    }
 
     await user.save();
 
@@ -90,6 +117,14 @@ export const uploadProfilePicture = async (req, res) => {
       });
     }
 
+    // Additional validation
+    if (!req.file.buffer || req.file.buffer.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image file",
+      });
+    }
+
     const user = await User.findById(userId);
 
     if (!user) {
@@ -99,29 +134,43 @@ export const uploadProfilePicture = async (req, res) => {
       });
     }
 
-    // Delete old image from Cloudinary if exists
-    if (user.profileImagePublicId) {
-      try {
-        await cloudinary.uploader.destroy(user.profileImagePublicId);
-      } catch (error) {
-        console.error("Error deleting old image:", error);
+    // Store old image ID before upload (in case new upload fails)
+    const oldImagePublicId = user.profileImagePublicId;
+
+    try {
+      // Upload to Cloudinary
+      const result = await uploadToCloudinary(req.file.buffer, "spendwise/profiles");
+
+      // Update user with new image
+      user.profileImage = result.secure_url;
+      user.profileImagePublicId = result.public_id;
+
+      await user.save();
+
+      // Delete old image AFTER successful save (to avoid orphaned images)
+      if (oldImagePublicId) {
+        try {
+          await deleteFromCloudinary(oldImagePublicId);
+        } catch (deleteError) {
+          // Log but don't fail the request
+          console.error("Error deleting old image (non-critical):", deleteError);
+        }
       }
+
+      res.json({
+        success: true,
+        message: "Profile picture uploaded successfully",
+        profileImage: user.profileImage,
+      });
+    } catch (uploadError) {
+      // Upload failed, don't modify user
+      console.error("Cloudinary upload error:", uploadError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to upload image to cloud storage",
+        error: process.env.NODE_ENV === "development" ? uploadError.message : undefined,
+      });
     }
-
-    // Upload to Cloudinary using our helper function
-    const result = await uploadToCloudinary(req.file.buffer, "spendwise/profiles");
-
-    // Update user with new image
-    user.profileImage = result.secure_url;
-    user.profileImagePublicId = result.public_id;
-
-    await user.save();
-
-    res.json({
-      success: true,
-      message: "Profile picture uploaded successfully",
-      profileImage: user.profileImage,
-    });
   } catch (error) {
     console.error("Upload Profile Picture Error:", error);
     res.status(500).json({
@@ -153,20 +202,23 @@ export const deleteProfilePicture = async (req, res) => {
       });
     }
 
-    // Delete from Cloudinary
-    if (user.profileImagePublicId) {
-      try {
-        await cloudinary.uploader.destroy(user.profileImagePublicId);
-      } catch (error) {
-        console.error("Error deleting image from Cloudinary:", error);
-      }
-    }
+    // Store image ID before clearing (in case delete fails)
+    const imagePublicId = user.profileImagePublicId;
 
-    // Update user
+    // Update user first (safer approach)
     user.profileImage = null;
     user.profileImagePublicId = null;
-
     await user.save();
+
+    // Delete from Cloudinary (non-critical if it fails)
+    if (imagePublicId) {
+      try {
+        await deleteFromCloudinary(imagePublicId);
+      } catch (deleteError) {
+        // Image already removed from user, so this is non-critical
+        console.error("Error deleting image from Cloudinary (non-critical):", deleteError);
+      }
+    }
 
     res.json({
       success: true,
