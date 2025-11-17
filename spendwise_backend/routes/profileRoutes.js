@@ -10,7 +10,16 @@ import { upload } from "../config/cloudinary.js";
 
 const router = express.Router();
 
-// All routes require authentication
+// ✅ TEST ENDPOINT - No auth required (for debugging)
+router.get("/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "Profile routes are working!",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// All other routes require authentication
 router.use(protect);
 
 // GET user profile
