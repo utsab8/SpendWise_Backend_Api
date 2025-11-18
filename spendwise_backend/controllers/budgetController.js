@@ -1,4 +1,4 @@
-// budgetController.js - UPDATED WITH ICON & COLOR SUPPORT
+// budgetController.js - FIXED to update spent amounts
 import Budget from "../models/budget.js";
 import mongoose from "mongoose";
 
@@ -29,7 +29,7 @@ export const getUserBudget = async (req, res) => {
         budgetUsedPercentage: budget.totalBudget > 0 
           ? Math.round((budget.totalSpent / budget.totalBudget) * 100) 
           : 0,
-        categoryBudgets: budget.categoryBudgets, // ✅ Now includes icon & color
+        categoryBudgets: budget.categoryBudgets,
         month: budget.month,
       },
     });
@@ -38,55 +38,6 @@ export const getUserBudget = async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: "Failed to get budget", 
-      error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
-    });
-  }
-};
-
-// ==================== UPDATE TOTAL BUDGET ====================
-export const updateTotalBudget = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { totalBudget } = req.body;
-
-    if (totalBudget === undefined || totalBudget === null || totalBudget < 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Valid total budget is required (must be >= 0)" 
-      });
-    }
-
-    let budget = await Budget.findOne({ userId });
-    
-    if (!budget) {
-      budget = new Budget({ 
-        userId, 
-        totalBudget: parseFloat(totalBudget), 
-        totalSpent: 0 
-      });
-    } else {
-      budget.totalBudget = parseFloat(totalBudget);
-    }
-
-    await budget.save();
-
-    res.json({
-      success: true,
-      message: "Total budget updated successfully",
-      budget: {
-        totalBudget: budget.totalBudget,
-        totalSpent: budget.totalSpent,
-        budgetLeft: budget.totalBudget - budget.totalSpent,
-        budgetUsedPercentage: budget.totalBudget > 0 
-          ? Math.round((budget.totalSpent / budget.totalBudget) * 100) 
-          : 0,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Update Total Budget Error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Failed to update budget", 
       error: process.env.NODE_ENV === "development" ? error.message : "Internal server error",
     });
   }
@@ -116,7 +67,7 @@ export const updateCategoryBudgets = async (req, res) => {
       });
     }
 
-    // ✅ Update category budgets - preserve existing spent amounts & handle icon/color
+    // ✅ FIXED: Update category budgets - UPDATE spent amounts from frontend
     const updatedCategories = categoryBudgets.map(cat => {
       const existing = budget.categoryBudgets.find(
         existing => existing.category === cat.category
@@ -125,15 +76,26 @@ export const updateCategoryBudgets = async (req, res) => {
       return {
         category: cat.category,
         budgetAmount: parseFloat(cat.budgetAmount) || 0,
-        spentAmount: existing ? existing.spentAmount : 0,
-        // ✅ NEW: Handle icon and color
+        // ✅ CRITICAL FIX: Use spentAmount from frontend (not preserve existing)
+        spentAmount: parseFloat(cat.spentAmount) || 0,
         icon: cat.icon || (existing ? existing.icon : "category"),
         color: cat.color || (existing ? existing.color : "#2196F3"),
       };
     });
 
+    // ✅ FIXED: Recalculate total spent from all categories
+    const newTotalSpent = updatedCategories.reduce((total, cat) => total + (cat.spentAmount || 0), 0);
+
     budget.categoryBudgets = updatedCategories;
+    budget.totalSpent = newTotalSpent;
+
     await budget.save();
+
+    console.log(`✅ Category budgets updated: Total spent = ${newTotalSpent}`);
+    console.log('📊 Category details:');
+    updatedCategories.forEach(cat => {
+      console.log(`   ${cat.category}: Budget=${cat.budgetAmount}, Spent=${cat.spentAmount}`);
+    });
 
     res.json({
       success: true,
@@ -190,20 +152,24 @@ export const updateFullBudget = async (req, res) => {
         return {
           category: cat.category,
           budgetAmount: parseFloat(cat.budgetAmount) || 0,
-          spentAmount: existing ? existing.spentAmount : (parseFloat(cat.spentAmount) || 0),
-          // ✅ NEW: Handle icon and color
+          // ✅ FIXED: Use spentAmount from frontend
+          spentAmount: parseFloat(cat.spentAmount) || 0,
           icon: cat.icon || (existing ? existing.icon : "category"),
           color: cat.color || (existing ? existing.color : "#2196F3"),
         };
       });
 
+      // ✅ FIXED: Recalculate total spent
+      const newTotalSpent = updatedCategories.reduce((total, cat) => total + (cat.spentAmount || 0), 0);
+      
       budget.categoryBudgets = updatedCategories;
+      budget.totalSpent = newTotalSpent;
     }
 
     await budget.save({ session });
     await session.commitTransaction();
 
-    console.log(`✅ Budget updated for user ${userId}: Total=${budget.totalBudget}, Categories=${budget.categoryBudgets.length}`);
+    console.log(`✅ Budget updated for user ${userId}: Total=${budget.totalBudget}, Spent=${budget.totalSpent}, Categories=${budget.categoryBudgets.length}`);
 
     res.json({
       success: true,
@@ -215,7 +181,7 @@ export const updateFullBudget = async (req, res) => {
         budgetUsedPercentage: budget.totalBudget > 0 
           ? Math.round((budget.totalSpent / budget.totalBudget) * 100) 
           : 0,
-        categoryBudgets: budget.categoryBudgets, // ✅ Now includes icon & color
+        categoryBudgets: budget.categoryBudgets,
       },
     });
   } catch (error) {
@@ -231,7 +197,7 @@ export const updateFullBudget = async (req, res) => {
   }
 };
 
-// ==================== ADD EXPENSE (DEPRECATED - Use Transaction API) ====================
+// ==================== ADD EXPENSE ====================
 export const addExpense = async (req, res) => {
   const session = await mongoose.startSession();
   
@@ -278,7 +244,7 @@ export const addExpense = async (req, res) => {
     if (categoryBudget) {
       categoryBudget.spentAmount += expenseAmount;
     } else {
-      // ✅ NEW: Create with default icon/color if category doesn't exist
+      // Create new category with expense
       budget.categoryBudgets.push({
         category: category.trim(),
         budgetAmount: 0,
@@ -342,11 +308,10 @@ export const resetBudget = async (req, res) => {
       });
     }
 
-    // Reset spent amounts but keep budget allocations (and icon/color!)
+    // Reset spent amounts but keep budget allocations
     budget.totalSpent = 0;
     budget.categoryBudgets.forEach(cat => {
       cat.spentAmount = 0;
-      // ✅ Icon and color are preserved automatically
     });
     
     // Update month to current
@@ -365,7 +330,7 @@ export const resetBudget = async (req, res) => {
         totalBudget: budget.totalBudget,
         totalSpent: budget.totalSpent,
         budgetLeft: budget.totalBudget,
-        categoryBudgets: budget.categoryBudgets, // ✅ Includes icon & color
+        categoryBudgets: budget.categoryBudgets,
         month: budget.month,
       },
     });

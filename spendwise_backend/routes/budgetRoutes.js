@@ -2,7 +2,6 @@ import express from "express";
 import { protect } from "../middleware/authMiddleware.js";
 import {
   getUserBudget,
-  updateTotalBudget,
   updateCategoryBudgets,
   updateFullBudget,
   addExpense,
@@ -16,9 +15,6 @@ router.use(protect);
 
 // GET user budget
 router.get("/", getUserBudget);
-
-// UPDATE total budget only
-router.put("/total", updateTotalBudget);
 
 // UPDATE category budgets only
 router.put("/categories", updateCategoryBudgets);
