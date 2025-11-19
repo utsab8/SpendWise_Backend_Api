@@ -1,9 +1,9 @@
-// config/cloudinary.js - ALLOW ALL IMAGE TYPES (FIXED)
+// config/cloudinary.js - ACCEPTS ALL IMAGE TYPES
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { Readable } from "stream";
 
-// ✅ Configure Cloudinary
+// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -19,33 +19,30 @@ if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !pr
 // Use memory storage
 const storage = multer.memoryStorage();
 
-// ✅ Multer upload middleware - ACCEPT ALL IMAGE TYPES
+// Multer upload middleware - NO FILE TYPE RESTRICTIONS
 export const upload = multer({
   storage: storage,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
-    files: 1, // Only allow 1 file
+    files: 1,
   },
   fileFilter: (req, file, cb) => {
-    // ✅ Accept ANY image type (jpeg, jpg, png, webp, gif, bmp, heic, etc.)
+    // Only check if it's an image - accept ALL image formats
     if (file.mimetype.startsWith('image/')) {
-      cb(null, true); // Accept the file
+      cb(null, true);
     } else {
-      // Only reject non-image files
       cb(new Error('Only image files are allowed!'), false);
     }
   },
 });
 
-// ✅ Helper function to upload to Cloudinary - SUPPORT ALL IMAGE FORMATS
+// Upload to Cloudinary - NO FORMAT RESTRICTIONS
 export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") => {
   return new Promise((resolve, reject) => {
-    // Validate buffer
     if (!fileBuffer || fileBuffer.length === 0) {
       return reject(new Error('Invalid file buffer'));
     }
 
-    // Check file size
     if (fileBuffer.length > 5 * 1024 * 1024) {
       return reject(new Error('File size exceeds 5MB limit'));
     }
@@ -56,10 +53,9 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
         transformation: [
           { width: 500, height: 500, crop: "fill", gravity: "face" },
           { quality: "auto:good" },
-          { fetch_format: "auto" } // Auto-convert to best format
+          { fetch_format: "auto" }
         ],
-        resource_type: "image", // Accept all image types
-        // ✅ No format restrictions - Cloudinary handles all image formats
+        resource_type: "image",
       },
       (error, result) => {
         if (error) {
@@ -74,7 +70,6 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
       }
     );
 
-    // Convert buffer to stream and pipe to Cloudinary
     try {
       const bufferStream = Readable.from(fileBuffer);
       bufferStream.pipe(uploadStream);
@@ -84,7 +79,7 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
   });
 };
 
-// Helper function to safely delete from Cloudinary
+// Delete from Cloudinary
 export const deleteFromCloudinary = async (publicId) => {
   if (!publicId) {
     throw new Error('No public ID provided');
