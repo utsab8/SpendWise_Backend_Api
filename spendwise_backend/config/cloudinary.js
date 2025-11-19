@@ -1,42 +1,39 @@
-// config/cloudinary.js - ACCEPTS ALL IMAGE TYPES
+// config/cloudinary.js - UPDATED TO ACCEPT ALL IMAGE FORMATS
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { Readable } from "stream";
 
-// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Validate Cloudinary configuration on startup
 if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
   console.error('❌ ERROR: Cloudinary credentials not found in environment variables');
   console.error('Please set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET');
 }
 
-// Use memory storage
 const storage = multer.memoryStorage();
 
-// Multer upload middleware - NO FILE TYPE RESTRICTIONS
 export const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 5 * 1024 * 1024,
     files: 1,
   },
   fileFilter: (req, file, cb) => {
-    // Only check if it's an image - accept ALL image formats
+    console.log('📁 File upload attempt:', file.mimetype, file.originalname);
     if (file.mimetype.startsWith('image/')) {
+      console.log('✅ Image accepted');
       cb(null, true);
     } else {
+      console.log('❌ Non-image rejected');
       cb(new Error('Only image files are allowed!'), false);
     }
   },
 });
 
-// Upload to Cloudinary - NO FORMAT RESTRICTIONS
 export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") => {
   return new Promise((resolve, reject) => {
     if (!fileBuffer || fileBuffer.length === 0) {
@@ -47,6 +44,8 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
       return reject(new Error('File size exceeds 5MB limit'));
     }
 
+    console.log('☁️ Uploading to Cloudinary...');
+    
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: folder,
@@ -59,7 +58,7 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
       },
       (error, result) => {
         if (error) {
-          console.error('Cloudinary upload error:', error);
+          console.error('❌ Cloudinary upload error:', error);
           reject(new Error(`Upload failed: ${error.message}`));
         } else if (!result) {
           reject(new Error('Upload failed: No result from Cloudinary'));
@@ -79,7 +78,6 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
   });
 };
 
-// Delete from Cloudinary
 export const deleteFromCloudinary = async (publicId) => {
   if (!publicId) {
     throw new Error('No public ID provided');
