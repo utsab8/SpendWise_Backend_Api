@@ -1,9 +1,9 @@
-// config/cloudinary.js - ALLOW ALL IMAGE TYPES
+// config/cloudinary.js - ALLOW ALL IMAGE TYPES (FIXED)
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { Readable } from "stream";
 
-// ✅ Configure Cloudinary - NO HARDCODED DEFAULTS
+// ✅ Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -19,7 +19,7 @@ if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !pr
 // Use memory storage
 const storage = multer.memoryStorage();
 
-// Multer upload middleware - ALLOW ALL IMAGE TYPES
+// ✅ Multer upload middleware - ACCEPT ALL IMAGE TYPES
 export const upload = multer({
   storage: storage,
   limits: {
@@ -27,16 +27,17 @@ export const upload = multer({
     files: 1, // Only allow 1 file
   },
   fileFilter: (req, file, cb) => {
-    // ✅ Check if file is an image (any image type)
+    // ✅ Accept ANY image type (jpeg, jpg, png, webp, gif, bmp, heic, etc.)
     if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
+      cb(null, true); // Accept the file
     } else {
+      // Only reject non-image files
       cb(new Error('Only image files are allowed!'), false);
     }
   },
 });
 
-// Helper function to upload to Cloudinary - ALLOW ALL IMAGE FORMATS
+// ✅ Helper function to upload to Cloudinary - SUPPORT ALL IMAGE FORMATS
 export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") => {
   return new Promise((resolve, reject) => {
     // Validate buffer
@@ -54,11 +55,11 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
         folder: folder,
         transformation: [
           { width: 500, height: 500, crop: "fill", gravity: "face" },
-          { quality: "auto:good" }, // Better quality
-          { fetch_format: "auto" }
+          { quality: "auto:good" },
+          { fetch_format: "auto" } // Auto-convert to best format
         ],
-        // ✅ Allow all image formats - Cloudinary will handle conversion
-        resource_type: "image",
+        resource_type: "image", // Accept all image types
+        // ✅ No format restrictions - Cloudinary handles all image formats
       },
       (error, result) => {
         if (error) {
