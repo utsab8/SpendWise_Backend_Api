@@ -19,16 +19,20 @@ const storage = multer.memoryStorage();
 export const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 10 * 1024 * 1024, // Increased to 10MB limit
     files: 1,
   },
   fileFilter: (req, file, cb) => {
-    console.log('📄 File upload attempt:', file.mimetype, file.originalname);
+    console.log('📄 File upload attempt:', {
+      mimetype: file.mimetype,
+      originalname: file.originalname,
+      size: file.size
+    });
     
-    // Accept ALL image formats (more permissive)
+    // EXTREMELY PERMISSIVE - Accept ANY image type and common formats
     const allowedMimeTypes = [
       'image/jpeg',
-      'image/jpg',
+      'image/jpg', 
       'image/png',
       'image/gif',
       'image/webp',
@@ -36,16 +40,23 @@ export const upload = multer({
       'image/tiff',
       'image/svg+xml',
       'image/x-icon',
-      'image/vnd.microsoft.icon'
+      'image/vnd.microsoft.icon',
+      'application/octet-stream', // Fallback for unknown types
+      'image/*' // Catch-all for any image type
     ];
     
-    // Check if mimetype starts with 'image/' OR is in allowed list
-    if (file.mimetype.startsWith('image/') || allowedMimeTypes.includes(file.mimetype)) {
-      console.log('✅ Image accepted:', file.mimetype);
+    // Check if it's ANY image type OR in allowed list OR has image extension
+    const isImage = file.mimetype.startsWith('image/') || 
+                   allowedMimeTypes.includes(file.mimetype) ||
+                   allowedMimeTypes.some(type => type.includes(file.mimetype)) ||
+                   /\.(jpg|jpeg|png|gif|webp|bmp|tiff|svg)$/i.test(file.originalname);
+
+    if (isImage) {
+      console.log('✅ Image accepted:', file.mimetype, file.originalname);
       cb(null, true);
     } else {
-      console.log('❌ File rejected - not an image:', file.mimetype);
-      cb(new Error('Only image files are allowed!'), false);
+      console.log('❌ File rejected - not an image:', file.mimetype, file.originalname);
+      cb(new Error('Only image files are allowed (JPG, PNG, GIF, WEBP, BMP, TIFF, SVG)!'), false);
     }
   },
 });
@@ -56,21 +67,23 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
       return reject(new Error('Invalid file buffer'));
     }
 
-    if (fileBuffer.length > 5 * 1024 * 1024) {
-      return reject(new Error('File size exceeds 5MB limit'));
+    if (fileBuffer.length > 10 * 1024 * 1024) {
+      return reject(new Error('File size exceeds 10MB limit'));
     }
 
     console.log('☁️ Uploading to Cloudinary...');
+    console.log('File size:', fileBuffer.length, 'bytes');
     
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         folder: folder,
         transformation: [
-          { width: 500, height: 500, crop: "fill", gravity: "face" },
+          { width: 500, height: 500, crop: "fill", gravity: "auto" },
           { quality: "auto:good" },
           { fetch_format: "auto" }
         ],
         resource_type: "image",
+        allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg'],
       },
       (error, result) => {
         if (error) {
@@ -80,6 +93,7 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
           reject(new Error('Upload failed: No result from Cloudinary'));
         } else {
           console.log('✅ Image uploaded successfully:', result.public_id);
+          console.log('Format:', result.format, 'Size:', result.bytes, 'bytes');
           resolve(result);
         }
       }

@@ -110,6 +110,14 @@ export const uploadProfilePicture = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    console.log('📸 Upload profile picture request received');
+    console.log('File details:', {
+      hasFile: !!req.file,
+      fileSize: req.file?.size,
+      mimetype: req.file?.mimetype,
+      originalname: req.file?.originalname
+    });
+
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -121,7 +129,7 @@ export const uploadProfilePicture = async (req, res) => {
     if (!req.file.buffer || req.file.buffer.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Invalid image file",
+        message: "Invalid image file - empty buffer",
       });
     }
 
@@ -138,6 +146,8 @@ export const uploadProfilePicture = async (req, res) => {
     const oldImagePublicId = user.profileImagePublicId;
 
     try {
+      console.log('🚀 Starting Cloudinary upload...');
+      
       // Upload to Cloudinary
       const result = await uploadToCloudinary(req.file.buffer, "spendwise/profiles");
 
@@ -147,10 +157,13 @@ export const uploadProfilePicture = async (req, res) => {
 
       await user.save();
 
+      console.log('✅ Profile picture updated successfully');
+
       // Delete old image AFTER successful save (to avoid orphaned images)
       if (oldImagePublicId) {
         try {
           await deleteFromCloudinary(oldImagePublicId);
+          console.log('🗑️ Old profile picture deleted');
         } catch (deleteError) {
           // Log but don't fail the request
           console.error("Error deleting old image (non-critical):", deleteError);
@@ -164,15 +177,15 @@ export const uploadProfilePicture = async (req, res) => {
       });
     } catch (uploadError) {
       // Upload failed, don't modify user
-      console.error("Cloudinary upload error:", uploadError);
+      console.error("❌ Cloudinary upload error:", uploadError);
       return res.status(500).json({
         success: false,
-        message: "Failed to upload image to cloud storage",
+        message: `Failed to upload image: ${uploadError.message}`,
         error: process.env.NODE_ENV === "development" ? uploadError.message : undefined,
       });
     }
   } catch (error) {
-    console.error("Upload Profile Picture Error:", error);
+    console.error("❌ Upload Profile Picture Error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to upload profile picture",
