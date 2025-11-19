@@ -1,5 +1,6 @@
-// budgetController.js - FIXED to update spent amounts
+// budgetController.js - COMPLETE FIXED VERSION with Transaction integration
 import Budget from "../models/budget.js";
+import Transaction from "../models/transaction.js"; // ✅ ADDED
 import mongoose from "mongoose";
 
 // ==================== GET USER BUDGET ====================
@@ -233,7 +234,20 @@ export const addExpense = async (req, res) => {
 
     const expenseAmount = parseFloat(amount);
 
-    // Update total spent
+    // ✅ CREATE TRANSACTION RECORD (NEW!)
+    const transaction = new Transaction({
+      userId,
+      category: category.trim(),
+      amount: expenseAmount,
+      description: description || "",
+      type: "expense",
+      date: new Date(),
+    });
+
+    await transaction.save({ session });
+    console.log(`✅ Transaction created: ${transaction._id}`);
+
+    // Update total spent in budget
     budget.totalSpent += expenseAmount;
 
     // Update category spent
@@ -258,6 +272,7 @@ export const addExpense = async (req, res) => {
     await session.commitTransaction();
 
     console.log(`✅ Expense added: ${category} - NPR ${expenseAmount}`);
+    console.log(`✅ Transaction ID: ${transaction._id}`);
 
     res.json({
       success: true,
@@ -266,6 +281,7 @@ export const addExpense = async (req, res) => {
         category: category.trim(),
         amount: expenseAmount,
         description: description || "",
+        transactionId: transaction._id, // ✅ Return transaction ID
       },
       budget: {
         totalBudget: budget.totalBudget,
