@@ -1,4 +1,4 @@
-// config/cloudinary.js - UPDATED TO ACCEPT ALL IMAGE FORMATS
+// config/cloudinary.js - ACCEPT ALL IMAGE FORMATS
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { Readable } from "stream";
@@ -19,16 +19,32 @@ const storage = multer.memoryStorage();
 export const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 5 * 1024 * 1024, // 5MB limit
     files: 1,
   },
   fileFilter: (req, file, cb) => {
-    console.log('📁 File upload attempt:', file.mimetype, file.originalname);
-    if (file.mimetype.startsWith('image/')) {
-      console.log('✅ Image accepted');
+    console.log('📄 File upload attempt:', file.mimetype, file.originalname);
+    
+    // Accept ALL image formats (more permissive)
+    const allowedMimeTypes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/bmp',
+      'image/tiff',
+      'image/svg+xml',
+      'image/x-icon',
+      'image/vnd.microsoft.icon'
+    ];
+    
+    // Check if mimetype starts with 'image/' OR is in allowed list
+    if (file.mimetype.startsWith('image/') || allowedMimeTypes.includes(file.mimetype)) {
+      console.log('✅ Image accepted:', file.mimetype);
       cb(null, true);
     } else {
-      console.log('❌ Non-image rejected');
+      console.log('❌ File rejected - not an image:', file.mimetype);
       cb(new Error('Only image files are allowed!'), false);
     }
   },
