@@ -7,11 +7,12 @@ import authRoutes from "./spendwise_backend/routes/authRoutes.js";
 import budgetRoutes from "./spendwise_backend/routes/budgetRoutes.js";
 import transactionRoutes from "./spendwise_backend/routes/transactionRoutes.js";
 import profileRoutes from "./spendwise_backend/routes/profileRoutes.js";
+import reportsRoutes from "./spendwise_backend/routes/reportsRoutes.js";
 
 // ✅ Only load .env in development (local), not in production (Render)
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
-  console.log('📁 Loaded .env file (development mode)');
+  console.log('📂 Loaded .env file (development mode)');
 } else {
   console.log('☁️  Using environment variables from hosting platform');
 }
@@ -44,12 +45,13 @@ app.use("/api/auth", authRoutes);
 app.use("/api/budget", budgetRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/profile", profileRoutes);
+app.use("/api/reports", reportsRoutes); // ✅ NEW: Reports routes
 
 // Health check endpoint
 app.get("/", (req, res) => {
   res.json({ 
     message: "SpendWise API is running",
-    version: "1.3.0",
+    version: "1.4.0", // Updated version
     status: "healthy",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
@@ -58,6 +60,7 @@ app.get("/", (req, res) => {
       budget: "/api/budget",
       transactions: "/api/transactions",
       profile: "/api/profile",
+      reports: "/api/reports", // ✅ NEW
     }
   });
 });
