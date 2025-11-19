@@ -1,4 +1,4 @@
-// config/cloudinary.js - FIXED VERSION
+// config/cloudinary.js - ALLOW ALL IMAGE TYPES
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import { Readable } from "stream";
@@ -19,7 +19,7 @@ if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !pr
 // Use memory storage
 const storage = multer.memoryStorage();
 
-// Multer upload middleware with improved validation
+// Multer upload middleware - ALLOW ALL IMAGE TYPES
 export const upload = multer({
   storage: storage,
   limits: {
@@ -27,26 +27,16 @@ export const upload = multer({
     files: 1, // Only allow 1 file
   },
   fileFilter: (req, file, cb) => {
-    // Check file type
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      return cb(new Error('Only JPG, PNG, and WEBP images are allowed!'), false);
+    // ✅ Check if file is an image (any image type)
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
     }
-
-    // Check file extension
-    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
-    const fileExtension = file.originalname.toLowerCase().slice(file.originalname.lastIndexOf('.'));
-    
-    if (!allowedExtensions.includes(fileExtension)) {
-      return cb(new Error('Invalid file extension!'), false);
-    }
-
-    cb(null, true);
   },
 });
 
-// Helper function to upload to Cloudinary with better error handling
+// Helper function to upload to Cloudinary - ALLOW ALL IMAGE FORMATS
 export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") => {
   return new Promise((resolve, reject) => {
     // Validate buffer
@@ -67,7 +57,7 @@ export const uploadToCloudinary = (fileBuffer, folder = "spendwise/profiles") =>
           { quality: "auto:good" }, // Better quality
           { fetch_format: "auto" }
         ],
-        allowed_formats: ["jpg", "jpeg", "png", "webp"],
+        // ✅ Allow all image formats - Cloudinary will handle conversion
         resource_type: "image",
       },
       (error, result) => {
