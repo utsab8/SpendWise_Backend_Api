@@ -1,4 +1,4 @@
-// controllers/reportsController.js - FIXED with proper exports
+// controllers/reportsController.js - COMPLETE VERSION
 import Transaction from "../models/transaction.js";
 import Budget from "../models/budget.js";
 
@@ -19,8 +19,8 @@ export const getReportsData = async (req, res) => {
     switch (period) {
       case 'day':
         dateRange = {
-          start: new Date(now.setHours(0, 0, 0, 0)),
-          end: new Date(now.setHours(23, 59, 59, 999)),
+          start: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+          end: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999),
         };
         break;
       case 'week':
@@ -51,7 +51,7 @@ export const getReportsData = async (req, res) => {
         };
     }
 
-    console.log('Date Range:', dateRange);
+    console.log('Date Range:', dateRange.start, 'to', dateRange.end);
 
     // ✅ GET BUDGET DATA FIRST
     const budget = await Budget.findOne({ userId });
@@ -152,7 +152,7 @@ export const getReportsData = async (req, res) => {
       catData.percentage = percentage;
     });
 
-    // Generate time series data
+    // Generate time series data - FIXED
     const timeSeriesData = generateTimeSeriesData(transactions, period, dateRange);
 
     // Sort categories by amount (descending)
@@ -164,6 +164,7 @@ export const getReportsData = async (req, res) => {
       }, {});
 
     console.log('✅ Reports data prepared with budget integration');
+    console.log('📊 Time series data:', timeSeriesData);
 
     res.json({
       success: true,
@@ -210,20 +211,23 @@ export const getReportsData = async (req, res) => {
 // ==================== HELPER: Generate Time Series Data ====================
 function generateTimeSeriesData(transactions, period, dateRange) {
   const timeSeriesData = [];
+  let labels = [];
+  let intervals = [];
 
   switch (period) {
     case 'day':
-      // Hourly breakdown (6 AM to 9 PM)
+      // Hourly breakdown (6 AM to 9 PM) - 3 hour intervals
       for (let hour = 6; hour <= 21; hour += 3) {
+        const endHour = hour + 3;
         const label = `${hour.toString().padStart(2, '0')}:00`;
-        const amount = transactions
-          .filter((t) => {
-            const txHour = new Date(t.date).getHours();
-            return txHour >= hour && txHour < hour + 3 && t.type === 'expense';
-          })
-          .reduce((sum, t) => sum + t.amount, 0);
-
-        timeSeriesData.push({ label, amount });
+        labels.push(label);
+        
+        const startTime = new Date(dateRange.start);
+        startTime.setHours(hour, 0, 0, 0);
+        const endTime = new Date(dateRange.start);
+        endTime.setHours(endHour, 0, 0, 0);
+        
+        intervals.push({ start: startTime, end: endTime, label });
       }
       break;
 
@@ -233,17 +237,12 @@ function generateTimeSeriesData(transactions, period, dateRange) {
       for (let i = 0; i < 7; i++) {
         const dayStart = new Date(dateRange.start);
         dayStart.setDate(dateRange.start.getDate() + i);
+        dayStart.setHours(0, 0, 0, 0);
         const dayEnd = new Date(dayStart);
         dayEnd.setHours(23, 59, 59, 999);
-
-        const amount = transactions
-          .filter((t) => {
-            const txDate = new Date(t.date);
-            return txDate >= dayStart && txDate <= dayEnd && t.type === 'expense';
-          })
-          .reduce((sum, t) => sum + t.amount, 0);
-
-        timeSeriesData.push({ label: days[i], amount });
+        
+        labels.push(days[i]);
+        intervals.push({ start: dayStart, end: dayEnd, label: days[i] });
       }
       break;
 
@@ -254,15 +253,10 @@ function generateTimeSeriesData(transactions, period, dateRange) {
         weekStart.setDate(dateRange.start.getDate() + week * 7);
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
-
-        const amount = transactions
-          .filter((t) => {
-            const txDate = new Date(t.date);
-            return txDate >= weekStart && txDate <= weekEnd && t.type === 'expense';
-          })
-          .reduce((sum, t) => sum + t.amount, 0);
-
-        timeSeriesData.push({ label: `W${week + 1}`, amount });
+        weekEnd.setHours(23, 59, 59, 999);
+        
+        labels.push(`W${week + 1}`);
+        intervals.push({ start: weekStart, end: weekEnd, label: `W${week + 1}` });
       }
       break;
 
@@ -272,15 +266,9 @@ function generateTimeSeriesData(transactions, period, dateRange) {
       for (let month = 0; month < 12; month++) {
         const monthStart = new Date(dateRange.start.getFullYear(), month, 1);
         const monthEnd = new Date(dateRange.start.getFullYear(), month + 1, 0, 23, 59, 59, 999);
-
-        const amount = transactions
-          .filter((t) => {
-            const txDate = new Date(t.date);
-            return txDate >= monthStart && txDate <= monthEnd && t.type === 'expense';
-          })
-          .reduce((sum, t) => sum + t.amount, 0);
-
-        timeSeriesData.push({ label: months[month], amount });
+        
+        labels.push(months[month]);
+        intervals.push({ start: monthStart, end: monthEnd, label: months[month] });
       }
       break;
 
@@ -291,25 +279,46 @@ function generateTimeSeriesData(transactions, period, dateRange) {
         weekStart.setDate(dateRange.start.getDate() + week * 7);
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
-
-        const amount = transactions
-          .filter((t) => {
-            const txDate = new Date(t.date);
-            return txDate >= weekStart && txDate <= weekEnd && t.type === 'expense';
-          })
-          .reduce((sum, t) => sum + t.amount, 0);
-
-        timeSeriesData.push({ label: `W${week + 1}`, amount });
+        weekEnd.setHours(23, 59, 59, 999);
+        
+        labels.push(`W${week + 1}`);
+        intervals.push({ start: weekStart, end: weekEnd, label: `W${week + 1}` });
       }
   }
 
-  // Normalize data for chart (0-1 scale)
-  const maxAmount = Math.max(...timeSeriesData.map((d) => d.amount), 1);
-  return timeSeriesData.map((d) => ({
+  // Calculate amounts for each interval
+  intervals.forEach(interval => {
+    const amount = transactions
+      .filter(t => {
+        const txDate = new Date(t.date);
+        return txDate >= interval.start && 
+               txDate <= interval.end && 
+               t.type === 'expense';
+      })
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    timeSeriesData.push({
+      label: interval.label,
+      amount: amount,
+    });
+  });
+
+  // Normalize data for chart (0-1 scale) - FIXED with better handling
+  const amounts = timeSeriesData.map(d => d.amount);
+  const maxAmount = Math.max(...amounts, 1); // Ensure at least 1 to avoid division by zero
+  
+  console.log('📊 Time series raw data:', timeSeriesData);
+  console.log('📊 Max amount for normalization:', maxAmount);
+
+  const normalizedData = timeSeriesData.map(d => ({
     label: d.label,
     amount: d.amount,
-    height: d.amount / maxAmount, // Normalized for chart display
+    height: maxAmount > 0 ? (d.amount / maxAmount) : 0,
   }));
+
+  console.log('📊 Normalized time series data:', normalizedData);
+  
+  return normalizedData;
 }
 
 // ==================== GET CATEGORY COMPARISON ====================
@@ -319,10 +328,17 @@ export const getCategoryComparison = async (req, res) => {
     const { period1Start, period1End, period2Start, period2End } = req.query;
 
     console.log('📊 GET CATEGORY COMPARISON');
-    console.log('Period 1:', period1Start, 'to', period1End);
-    console.log('Period 2:', period2Start, 'to', period2End);
+    console.log('User ID:', userId);
 
-    // Get transactions for both periods
+    // Validate dates
+    if (!period1Start || !period1End || !period2Start || !period2End) {
+      return res.status(400).json({
+        success: false,
+        message: 'All date parameters are required: period1Start, period1End, period2Start, period2End',
+      });
+    }
+
+    // Get transactions for period 1
     const period1Transactions = await Transaction.find({
       userId,
       type: 'expense',
@@ -332,6 +348,7 @@ export const getCategoryComparison = async (req, res) => {
       },
     });
 
+    // Get transactions for period 2
     const period2Transactions = await Transaction.find({
       userId,
       type: 'expense',
@@ -341,52 +358,89 @@ export const getCategoryComparison = async (req, res) => {
       },
     });
 
-    console.log(`Period 1 transactions: ${period1Transactions.length}`);
-    console.log(`Period 2 transactions: ${period2Transactions.length}`);
+    console.log(`📋 Period 1: ${period1Transactions.length} transactions`);
+    console.log(`📋 Period 2: ${period2Transactions.length} transactions`);
 
-    // Calculate category totals for both periods
+    // Calculate category totals for period 1
     const period1Categories = {};
+    let period1Total = 0;
+    period1Transactions.forEach((transaction) => {
+      if (!period1Categories[transaction.category]) {
+        period1Categories[transaction.category] = 0;
+      }
+      period1Categories[transaction.category] += transaction.amount;
+      period1Total += transaction.amount;
+    });
+
+    // Calculate category totals for period 2
     const period2Categories = {};
-
-    period1Transactions.forEach((t) => {
-      period1Categories[t.category] = (period1Categories[t.category] || 0) + t.amount;
+    let period2Total = 0;
+    period2Transactions.forEach((transaction) => {
+      if (!period2Categories[transaction.category]) {
+        period2Categories[transaction.category] = 0;
+      }
+      period2Categories[transaction.category] += transaction.amount;
+      period2Total += transaction.amount;
     });
 
-    period2Transactions.forEach((t) => {
-      period2Categories[t.category] = (period2Categories[t.category] || 0) + t.amount;
-    });
-
-    // Compare and calculate changes
+    // Get all unique categories
     const allCategories = new Set([
       ...Object.keys(period1Categories),
       ...Object.keys(period2Categories),
     ]);
 
-    const comparison = Array.from(allCategories).map((category) => {
+    // Build comparison data
+    const comparison = {};
+    allCategories.forEach((category) => {
       const period1Amount = period1Categories[category] || 0;
       const period2Amount = period2Categories[category] || 0;
-      const change = period2Amount - period1Amount;
+      const difference = period2Amount - period1Amount;
       const percentageChange = period1Amount > 0 
-        ? Math.round((change / period1Amount) * 100) 
-        : period2Amount > 0 ? 100 : 0;
+        ? Math.round((difference / period1Amount) * 100) 
+        : (period2Amount > 0 ? 100 : 0);
 
-      return {
-        category,
-        period1Amount,
-        period2Amount,
-        change,
-        percentageChange,
+      comparison[category] = {
+        period1: period1Amount,
+        period2: period2Amount,
+        difference: difference,
+        percentageChange: percentageChange,
+        trend: difference > 0 ? 'increased' : difference < 0 ? 'decreased' : 'unchanged',
       };
     });
+
+    // Overall comparison
+    const overallDifference = period2Total - period1Total;
+    const overallPercentageChange = period1Total > 0 
+      ? Math.round((overallDifference / period1Total) * 100) 
+      : (period2Total > 0 ? 100 : 0);
 
     console.log('✅ Category comparison prepared');
 
     res.json({
       success: true,
-      comparison: comparison.sort((a, b) => Math.abs(b.change) - Math.abs(a.change)),
+      data: {
+        period1: {
+          start: period1Start,
+          end: period1End,
+          total: period1Total,
+          transactionCount: period1Transactions.length,
+        },
+        period2: {
+          start: period2Start,
+          end: period2End,
+          total: period2Total,
+          transactionCount: period2Transactions.length,
+        },
+        overall: {
+          difference: overallDifference,
+          percentageChange: overallPercentageChange,
+          trend: overallDifference > 0 ? 'increased' : overallDifference < 0 ? 'decreased' : 'unchanged',
+        },
+        categoryComparison: comparison,
+      },
     });
   } catch (error) {
-    console.error('❌ Category Comparison Error:', error);
+    console.error('❌ GET CATEGORY COMPARISON ERROR:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to get category comparison',
