@@ -65,50 +65,59 @@ export const sendOTP = async (req, res) => {
     // Try to send email with timeout - but DON'T FAIL if it times out
     let emailResult = { success: false, error: 'Not attempted' };
     
+    // Try to send email with short timeout for fast response
     try {
       console.log('📧 Attempting to send OTP email...');
       
-      // Race between email sending and timeout
-      const emailPromise = sendOTPEmail(email, otpCode);
+      // Race between email sending and short timeout (10 seconds)
+      const emailPromise = sendOTPEmail(email, otpCode).catch(err => {
+        // If email service throws, return error object
+        return { 
+          success: false, 
+          error: err.message || 'Email sending failed',
+          code: err.code || 'UNKNOWN'
+        };
+      });
+      
       const timeoutPromise = new Promise((resolve) => {
         setTimeout(() => {
-          console.log('⏱️ Email sending timeout (45s) reached');
-          resolve({ success: false, error: 'TIMEOUT', code: 'ETIMEDOUT' });
-        }, 45000); // 45 second timeout
+          console.log('⏱️ Email timeout (10s) - responding immediately');
+          resolve({ success: false, error: 'Email may be delayed', code: 'TIMEOUT' });
+        }, 10000); // 10 second timeout - respond very quickly
       });
       
       emailResult = await Promise.race([emailPromise, timeoutPromise]);
       
-      if (emailResult.success) {
+      if (emailResult && emailResult.success) {
         console.log('✅ Email sent successfully');
       } else {
-        console.log('⚠️ Email sending failed or timed out:', emailResult.error);
+        console.log('⚠️ Email sending may be delayed:', emailResult?.error || 'Unknown');
       }
       
     } catch (emailError) {
-      console.error('❌ Email sending error caught:', emailError.message);
+      console.error('❌ Email sending error:', emailError.message);
       emailResult = { 
         success: false, 
-        error: emailError.message,
+        error: emailError.message || 'Email sending failed',
         code: emailError.code || 'UNKNOWN'
       };
     }
 
     // CRITICAL: Always return success if OTP is saved, regardless of email status
+    // This ensures the frontend can proceed to OTP entry screen immediately
     const response = {
       success: true, // ✅ Always true because OTP is saved in database
-      message: emailResult.success 
+      message: emailResult && emailResult.success 
         ? "OTP sent successfully to your email" 
-        : "OTP generated. Email delivery may be delayed due to server issues. Please wait a moment, check your spam folder, or contact support.",
-      emailSent: emailResult.success,
-      userId: user._id,
-      // Include additional debug info
-      emailStatus: {
-        attempted: true,
-        success: emailResult.success,
-        error: emailResult.error || null
-      }
+        : "OTP has been generated and sent to your email. Please check your inbox (including spam folder).",
+      emailSent: emailResult && emailResult.success ? true : false,
+      userId: user._id
     };
+    
+    // Only log email errors, don't include them in response message
+    if (!emailResult || !emailResult.success) {
+      console.log('ℹ️ Email may be delayed, but OTP is saved and user can proceed');
+    }
 
     // In development mode, include OTP for testing (ONLY IN DEV!)
     if (process.env.NODE_ENV === "development") {

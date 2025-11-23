@@ -334,20 +334,20 @@ export const sendOTPEmail = async (email, otp) => {
     console.log('📤 Sending email via SMTP...');
     console.log(`🎯 SMTP Server: smtp.gmail.com:587`);
     
-    // Create timeout promise (40 seconds)
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        const timeoutError = new Error('Email sending timeout - SMTP connection took too long');
-        timeoutError.code = 'ETIMEDOUT';
-        reject(timeoutError);
-      }, 40000); // 40 seconds
-    });
-    
-    // Race between actual email sending and timeout
-    const info = await Promise.race([
-      transporter.sendMail(mailOptions),
-      timeoutPromise
-    ]);
+     // Create timeout promise (8 seconds - very fast response)
+     const timeoutPromise = new Promise((_, reject) => {
+       setTimeout(() => {
+         const timeoutError = new Error('Email sending timeout - SMTP connection took too long');
+         timeoutError.code = 'ETIMEDOUT';
+         reject(timeoutError);
+       }, 8000); // 8 seconds - respond very quickly
+     });
+     
+     // Race between actual email sending and timeout
+     const info = await Promise.race([
+       transporter.sendMail(mailOptions),
+       timeoutPromise
+     ]);
     
     console.log('✅ EMAIL SENT SUCCESSFULLY!');
     console.log(`📬 Message ID: ${info.messageId}`);
@@ -402,13 +402,14 @@ export const sendOTPEmail = async (email, otp) => {
       console.error('3. Test with: /api/auth/test-email\n');
     }
     
-    // Return error details but don't throw (let controller handle it)
-    return { 
-      success: false, 
-      error: error.message,
-      code: error.code || 'UNKNOWN',
-      timestamp: new Date().toISOString()
-    };
+     // Return error details but don't throw (let controller handle it)
+     // This ensures the controller can still respond successfully even if email fails
+     return { 
+       success: false, 
+       error: error.message || 'Email sending failed',
+       code: error.code || 'UNKNOWN',
+       timestamp: new Date().toISOString()
+     };
   }
 };
 
