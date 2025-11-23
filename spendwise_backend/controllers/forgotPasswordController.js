@@ -1,4 +1,4 @@
-// controllers/forgotPasswordController.js - CLEAN PRODUCTION VERSION
+// controllers/forgotPasswordController.js - UPDATED WITH IMPROVED ERROR HANDLING
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 import OTP from "../models/otp.js";
@@ -22,6 +22,15 @@ export const sendOTP = async (req, res) => {
       });
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email format"
+      });
+    }
+
     // Find user by email (case-insensitive)
     const user = await User.findOne({ email: email.toLowerCase() });
     
@@ -39,7 +48,7 @@ export const sendOTP = async (req, res) => {
     // Delete any existing OTP for this user
     await OTP.deleteMany({ userId: user._id });
 
-    // Save new OTP
+    // Save new OTP to database FIRST (critical step)
     const otp = new OTP({
       userId: user._id,
       email: email.toLowerCase(),
@@ -48,39 +57,79 @@ export const sendOTP = async (req, res) => {
     });
     await otp.save();
 
-    // Send OTP via Email
-    let emailSent = false;
+    console.log('✅ OTP saved to database successfully');
+    console.log(`📝 OTP Code: ${otpCode}`);
+    console.log(`👤 User: ${email}`);
+    console.log(`⏰ Expires: ${expiresAt.toISOString()}`);
+
+    // Try to send email with timeout - but DON'T FAIL if it times out
+    let emailResult = { success: false, error: 'Not attempted' };
     
     try {
-      await sendOTPEmail(email, otpCode);
-      emailSent = true;
+      console.log('📧 Attempting to send OTP email...');
+      
+      // Race between email sending and timeout
+      const emailPromise = sendOTPEmail(email, otpCode);
+      const timeoutPromise = new Promise((resolve) => {
+        setTimeout(() => {
+          console.log('⏱️ Email sending timeout (45s) reached');
+          resolve({ success: false, error: 'TIMEOUT', code: 'ETIMEDOUT' });
+        }, 45000); // 45 second timeout
+      });
+      
+      emailResult = await Promise.race([emailPromise, timeoutPromise]);
+      
+      if (emailResult.success) {
+        console.log('✅ Email sent successfully');
+      } else {
+        console.log('⚠️ Email sending failed or timed out:', emailResult.error);
+      }
+      
     } catch (emailError) {
-      console.error("Email sending failed:", emailError.message);
+      console.error('❌ Email sending error caught:', emailError.message);
+      emailResult = { 
+        success: false, 
+        error: emailError.message,
+        code: emailError.code || 'UNKNOWN'
+      };
     }
 
-    // Response
+    // CRITICAL: Always return success if OTP is saved, regardless of email status
     const response = {
-      success: true,
-      message: emailSent 
+      success: true, // ✅ Always true because OTP is saved in database
+      message: emailResult.success 
         ? "OTP sent successfully to your email" 
-        : "OTP generated but email delivery failed",
-      emailSent: emailSent,
-      userId: user._id
+        : "OTP generated. Email delivery may be delayed due to server issues. Please wait a moment, check your spam folder, or contact support.",
+      emailSent: emailResult.success,
+      userId: user._id,
+      // Include additional debug info
+      emailStatus: {
+        attempted: true,
+        success: emailResult.success,
+        error: emailResult.error || null
+      }
     };
 
-    // In development, include OTP for testing
-    if (process.env.NODE_ENV === "development" && !emailSent) {
+    // In development mode, include OTP for testing (ONLY IN DEV!)
+    if (process.env.NODE_ENV === "development") {
       response.otp = otpCode;
-      console.log(`[DEV] OTP for ${email}: ${otpCode}`);
+      response.devMode = true;
+      console.log(`\n🔧 [DEV MODE] OTP for ${email}: ${otpCode}\n`);
     }
+    
+    console.log('📤 Sending success response to client');
+    console.log('Response:', JSON.stringify(response, null, 2));
     
     res.status(200).json(response);
 
   } catch (error) {
-    console.error("Send OTP Error:", error.message);
+    console.error('\n❌ SEND OTP ERROR');
+    console.error('Error Message:', error.message);
+    console.error('Stack:', error.stack);
+    
     res.status(500).json({
       success: false,
-      message: "Failed to send OTP",
+      message: "Failed to process OTP request. Please try again.",
       error: process.env.NODE_ENV === "development" ? error.message : undefined
     });
   }
@@ -91,6 +140,7 @@ export const verifyOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
 
+    // Validation
     if (!email || !otp) {
       return res.status(400).json({
         success: false,
@@ -98,6 +148,7 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
+    // Validate OTP format
     if (otp.length !== 6 || isNaN(otp)) {
       return res.status(400).json({
         success: false,
@@ -105,6 +156,7 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
+    // Find user
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(404).json({
@@ -113,6 +165,10 @@ export const verifyOTP = async (req, res) => {
       });
     }
 
+    console.log(`🔍 Verifying OTP for user: ${email}`);
+    console.log(`📝 OTP provided: ${otp}`);
+
+    // Find OTP record
     const otpRecord = await OTP.findOne({
       userId: user._id,
       otp: otp,
@@ -120,24 +176,31 @@ export const verifyOTP = async (req, res) => {
     });
 
     if (!otpRecord) {
+      console.log('❌ OTP not found or already verified');
       return res.status(400).json({
         success: false,
-        message: "Invalid OTP"
+        message: "Invalid OTP. Please check and try again."
       });
     }
 
+    // Check if OTP has expired
     const now = new Date();
     if (now > otpRecord.expiresAt) {
+      console.log('⏰ OTP has expired');
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({
         success: false,
-        message: "OTP has expired. Please request a new one"
+        message: "OTP has expired. Please request a new one."
       });
     }
 
+    // Mark OTP as verified
     otpRecord.verified = true;
     await otpRecord.save();
 
+    console.log('✅ OTP verified successfully');
+
+    // Generate reset token (valid for 15 minutes)
     const resetToken = jwt.sign(
       { userId: user._id, email: user.email },
       process.env.JWT_SECRET,
@@ -146,15 +209,15 @@ export const verifyOTP = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "OTP verified successfully",
+      message: "OTP verified successfully. You can now reset your password.",
       resetToken: resetToken
     });
 
   } catch (error) {
-    console.error("Verify OTP Error:", error.message);
+    console.error('❌ VERIFY OTP ERROR:', error.message);
     res.status(500).json({
       success: false,
-      message: "Failed to verify OTP",
+      message: "Failed to verify OTP. Please try again.",
       error: process.env.NODE_ENV === "development" ? error.message : undefined
     });
   }
@@ -165,6 +228,7 @@ export const resetPassword = async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
 
+    // Validation
     if (!email || !otp || !newPassword) {
       return res.status(400).json({
         success: false,
@@ -172,6 +236,7 @@ export const resetPassword = async (req, res) => {
       });
     }
 
+    // Validate password length
     if (newPassword.length < 6) {
       return res.status(400).json({
         success: false,
@@ -179,6 +244,15 @@ export const resetPassword = async (req, res) => {
       });
     }
 
+    // Validate password strength (optional but recommended)
+    if (newPassword.length > 128) {
+      return res.status(400).json({
+        success: false,
+        message: "Password is too long (max 128 characters)"
+      });
+    }
+
+    // Find user
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(404).json({
@@ -187,43 +261,54 @@ export const resetPassword = async (req, res) => {
       });
     }
 
+    console.log(`🔐 Resetting password for user: ${email}`);
+
+    // Find and verify OTP
     const otpRecord = await OTP.findOne({
       userId: user._id,
       otp: otp,
-      verified: true
+      verified: true // Must be verified first
     });
 
     if (!otpRecord) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or unverified OTP"
+        message: "Invalid or unverified OTP. Please verify OTP first."
       });
     }
 
+    // Check if OTP has expired
     const now = new Date();
     if (now > otpRecord.expiresAt) {
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({
         success: false,
-        message: "OTP has expired. Please request a new one"
+        message: "OTP has expired. Please request a new one."
       });
     }
 
+    // Update password (User model will hash it automatically via pre-save hook)
     user.password = newPassword;
     await user.save();
 
+    console.log('✅ Password reset successfully');
+
+    // Delete used OTP
     await OTP.deleteOne({ _id: otpRecord._id });
+
+    // Also delete any other OTPs for this user
+    await OTP.deleteMany({ userId: user._id });
 
     res.status(200).json({
       success: true,
-      message: "Password reset successfully. You can now login with your new password"
+      message: "Password reset successfully! You can now login with your new password."
     });
 
   } catch (error) {
-    console.error("Reset Password Error:", error.message);
+    console.error('❌ RESET PASSWORD ERROR:', error.message);
     res.status(500).json({
       success: false,
-      message: "Failed to reset password",
+      message: "Failed to reset password. Please try again.",
       error: process.env.NODE_ENV === "development" ? error.message : undefined
     });
   }
