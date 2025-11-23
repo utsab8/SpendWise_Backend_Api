@@ -1,4 +1,4 @@
-// spendwise_backend/routes/authRoutes.js - COMPLETE UPDATED VERSION
+// spendwise_backend/routes/authRoutes.js - FIXED VERSION WITH TEST ENDPOINTS
 import express from "express";
 import { registerUser, loginUser, logoutUser } from "../controllers/authController.js";
 import { sendOTP, verifyOTP, resetPassword } from "../controllers/forgotPasswordController.js";
