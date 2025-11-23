@@ -1,4 +1,4 @@
-// spendwise_backend/routes/authRoutes.js - FIXED VERSION WITH TEST ENDPOINTS
+// spendwise_backend/routes/authRoutes.js - CLEAN VERSION
 import express from "express";
 import { registerUser, loginUser, logoutUser } from "../controllers/authController.js";
 import { sendOTP, verifyOTP, resetPassword } from "../controllers/forgotPasswordController.js";
@@ -7,12 +7,18 @@ import { testEmailConnection } from "../utils/emailService.js";
 
 const router = express.Router();
 
-// ✅ Add logging middleware for debugging
+// Basic logging middleware
 router.use((req, res, next) => {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`🔍 Auth Route: ${req.method} ${req.path}`);
-  console.log(`📦 Body:`, req.body);
-  console.log('='.repeat(60));
+  console.log("\n" + "=".repeat(60));
+  console.log("📥 INCOMING REQUEST");
+  console.log(`Time: ${new Date().toISOString()}`);
+  console.log(`Method: ${req.method}`);
+  console.log(`Path: ${req.path}`);
+  console.log(`Full URL: ${req.protocol}://${req.get('host')}${req.originalUrl}`);
+  if (Object.keys(req.body).length > 0) {
+    console.log(`Body:`, req.body);
+  }
+  console.log("=".repeat(60));
   next();
 });
 
@@ -27,26 +33,13 @@ router.post("/login", loginUser);
 // ========== FORGOT PASSWORD ROUTES ==========
 
 // Send OTP for password reset
-router.post("/forgot-password/send-otp", async (req, res, next) => {
-  console.log("\n🔥 Send OTP endpoint hit!");
-  console.log("📧 Email:", req.body.email);
-  next();
-}, sendOTP);
+router.post("/forgot-password/send-otp", sendOTP);
 
 // Verify OTP
-router.post("/forgot-password/verify-otp", async (req, res, next) => {
-  console.log("\n🔥 Verify OTP endpoint hit!");
-  console.log("📧 Email:", req.body.email);
-  console.log("🔢 OTP:", req.body.otp);
-  next();
-}, verifyOTP);
+router.post("/forgot-password/verify-otp", verifyOTP);
 
 // Reset password
-router.post("/forgot-password/reset", async (req, res, next) => {
-  console.log("\n🔥 Reset Password endpoint hit!");
-  console.log("📧 Email:", req.body.email);
-  next();
-}, resetPassword);
+router.post("/forgot-password/reset", resetPassword);
 
 // ========== EMAIL SERVICE TESTING ROUTES ==========
 
