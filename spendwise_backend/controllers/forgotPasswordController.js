@@ -1,3 +1,4 @@
+// spendwise_backend/controllers/forgotPasswordController.js - COMPLETE UPDATED VERSION
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 import OTP from "../models/otp.js";
@@ -8,10 +9,13 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// SEND OTP
+// ========== SEND OTP ==========
 export const sendOTP = async (req, res) => {
   try {
-    console.log("📨 Send OTP Request Started");
+    console.log("\n" + "=".repeat(60));
+    console.log("📨 SEND OTP REQUEST");
+    console.log("=".repeat(60));
+    
     const { email } = req.body;
 
     // Validation
@@ -42,10 +46,11 @@ export const sendOTP = async (req, res) => {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     console.log(`🔢 Generated OTP: ${otpCode}`);
+    console.log(`⏱️  Expires at: ${expiresAt}`);
 
     // Delete any existing OTP for this user
-    await OTP.deleteMany({ userId: user._id });
-    console.log(`🗑️ Deleted old OTPs for user ${user._id}`);
+    const deletedCount = await OTP.deleteMany({ userId: user._id });
+    console.log(`🗑️  Deleted ${deletedCount.deletedCount} old OTP(s) for user ${user._id}`);
 
     // Save new OTP
     const otp = new OTP({
@@ -55,27 +60,54 @@ export const sendOTP = async (req, res) => {
       expiresAt: expiresAt
     });
     await otp.save();
-    console.log(`💾 OTP saved successfully`);
+    console.log(`💾 OTP saved to database`);
 
-    // ✅ Send OTP via Email
+    // Send OTP via Email
+    let emailSent = false;
+    let emailError = null;
+    
     try {
+      console.log(`\n📧 Attempting to send OTP email...`);
       await sendOTPEmail(email, otpCode);
-      console.log(`📧 OTP email sent to ${email}`);
-    } catch (emailError) {
-      console.error(`❌ Failed to send email:`, emailError);
-      // Continue anyway - OTP is saved in DB
-      // In production, you might want to return an error here
+      emailSent = true;
+      console.log(`✅ OTP email sent successfully to ${email}`);
+    } catch (emailErrorInstance) {
+      emailError = emailErrorInstance;
+      console.error(`❌ Email service error:`, emailErrorInstance.message);
+      console.error(`⚠️  OTP is saved in database, but email delivery failed`);
     }
     
-    res.status(200).json({
+    // Response (success even if email fails - OTP is in DB)
+    const response = {
       success: true,
-      message: "OTP sent successfully to your email",
-      // Remove OTP from response in production for security
-      ...(process.env.NODE_ENV === "development" && { otp: otpCode })
-    });
+      message: emailSent 
+        ? "OTP sent successfully to your email" 
+        : "OTP generated but email delivery failed. Check your server logs.",
+      emailSent: emailSent,
+      userId: user._id
+    };
+
+    // In development, include OTP for testing
+    if (process.env.NODE_ENV === "development") {
+      response.otp = otpCode;
+      response.debug = {
+        expiresIn: "10 minutes",
+        canRetry: true
+      };
+    }
+
+    console.log("\n✅ Send OTP response:", response.message);
+    console.log("=".repeat(60) + "\n");
+    
+    res.status(200).json(response);
 
   } catch (error) {
-    console.error("❌ Send OTP Error:", error);
+    console.error("\n" + "=".repeat(60));
+    console.error("❌ SEND OTP ERROR");
+    console.error("Error:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("=".repeat(60) + "\n");
+    
     res.status(500).json({
       success: false,
       message: "Failed to send OTP",
@@ -84,10 +116,13 @@ export const sendOTP = async (req, res) => {
   }
 };
 
-// VERIFY OTP
+// ========== VERIFY OTP ==========
 export const verifyOTP = async (req, res) => {
   try {
-    console.log("🔍 Verify OTP Request Started");
+    console.log("\n" + "=".repeat(60));
+    console.log("🔐 VERIFY OTP REQUEST");
+    console.log("=".repeat(60));
+    
     const { email, otp } = req.body;
 
     // Validation
@@ -100,8 +135,8 @@ export const verifyOTP = async (req, res) => {
     }
 
     // Validate OTP format
-    if (otp.length !== 6) {
-      console.log(`❌ Invalid OTP length: ${otp.length}`);
+    if (otp.length !== 6 || isNaN(otp)) {
+      console.log(`❌ Invalid OTP format: ${otp}`);
       return res.status(400).json({
         success: false,
         message: "OTP must be 6 digits"
@@ -109,6 +144,7 @@ export const verifyOTP = async (req, res) => {
     }
 
     console.log(`🔍 Verifying OTP for: ${email}`);
+    console.log(`🔢 OTP: ${otp}`);
 
     // Find user
     const user = await User.findOne({ email: email.toLowerCase() });
@@ -140,14 +176,18 @@ export const verifyOTP = async (req, res) => {
     console.log(`✅ OTP record found`);
 
     // Check if OTP is expired
-    if (new Date() > otpRecord.expiresAt) {
+    const now = new Date();
+    if (now > otpRecord.expiresAt) {
       console.log(`❌ OTP expired at: ${otpRecord.expiresAt}`);
+      console.log(`Current time: ${now}`);
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({
         success: false,
         message: "OTP has expired. Please request a new one"
       });
     }
+
+    console.log(`⏱️  OTP is still valid. Expires in: ${Math.round((otpRecord.expiresAt - now) / 1000)} seconds`);
 
     // Mark OTP as verified
     otpRecord.verified = true;
@@ -162,6 +202,7 @@ export const verifyOTP = async (req, res) => {
     );
 
     console.log(`✅ Reset token generated`);
+    console.log("=".repeat(60) + "\n");
 
     res.status(200).json({
       success: true,
@@ -170,7 +211,12 @@ export const verifyOTP = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Verify OTP Error:", error);
+    console.error("\n" + "=".repeat(60));
+    console.error("❌ VERIFY OTP ERROR");
+    console.error("Error:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("=".repeat(60) + "\n");
+    
     res.status(500).json({
       success: false,
       message: "Failed to verify OTP",
@@ -179,15 +225,22 @@ export const verifyOTP = async (req, res) => {
   }
 };
 
-// RESET PASSWORD
+// ========== RESET PASSWORD ==========
 export const resetPassword = async (req, res) => {
   try {
-    console.log("🔄 Reset Password Request Started");
+    console.log("\n" + "=".repeat(60));
+    console.log("🔄 RESET PASSWORD REQUEST");
+    console.log("=".repeat(60));
+    
     const { email, otp, newPassword } = req.body;
 
     // Validation
     if (!email || !otp || !newPassword) {
       console.log("❌ Missing required fields");
+      console.log("Email:", !!email);
+      console.log("OTP:", !!otp);
+      console.log("Password:", !!newPassword);
+      
       return res.status(400).json({
         success: false,
         message: "Email, OTP, and new password are required"
@@ -235,7 +288,8 @@ export const resetPassword = async (req, res) => {
     console.log(`✅ OTP verified`);
 
     // Check if OTP is expired
-    if (new Date() > otpRecord.expiresAt) {
+    const now = new Date();
+    if (now > otpRecord.expiresAt) {
       console.log(`❌ OTP expired at: ${otpRecord.expiresAt}`);
       await OTP.deleteOne({ _id: otpRecord._id });
       return res.status(400).json({
@@ -245,13 +299,18 @@ export const resetPassword = async (req, res) => {
     }
 
     // Update password (pre-save hook will hash it)
+    console.log(`🔐 Updating password...`);
     user.password = newPassword;
     await user.save();
     console.log(`✅ Password updated successfully`);
 
     // Delete used OTP
     await OTP.deleteOne({ _id: otpRecord._id });
-    console.log(`🗑️ OTP deleted after use`);
+    console.log(`🗑️  OTP deleted after successful password reset`);
+
+    console.log("=".repeat(60));
+    console.log("✅ PASSWORD RESET SUCCESSFUL");
+    console.log("=".repeat(60) + "\n");
 
     res.status(200).json({
       success: true,
@@ -259,7 +318,12 @@ export const resetPassword = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Reset Password Error:", error);
+    console.error("\n" + "=".repeat(60));
+    console.error("❌ RESET PASSWORD ERROR");
+    console.error("Error:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("=".repeat(60) + "\n");
+    
     res.status(500).json({
       success: false,
       message: "Failed to reset password",
