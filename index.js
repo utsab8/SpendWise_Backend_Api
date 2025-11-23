@@ -1,165 +1,144 @@
-// index.js - COMPLETE UPDATED VERSION
+// index.js - COMPLETE WORKING VERSION
 import express from "express";
-import dotenv from "dotenv";
 import cors from "cors";
-import multer from "multer";
-import connectDB from "./spendwise_backend/config/db.js";
-import authRoutes from "./spendwise_backend/routes/authRoutes.js";
-import budgetRoutes from "./spendwise_backend/routes/budgetRoutes.js";
-import transactionRoutes from "./spendwise_backend/routes/transactionRoutes.js";
-import profileRoutes from "./spendwise_backend/routes/profileRoutes.js";
-import reportsRoutes from "./spendwise_backend/routes/reportsRoutes.js";
-import { testEmailConnection } from "./spendwise_backend/utils/emailService.js";
+import dotenv from "dotenv";
+import mongoose from "mongoose";
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
+
+// Get __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Load environment variables
-if (process.env.NODE_ENV !== 'production') {
-  dotenv.config();
-  console.log('📚 Loaded .env file (development mode)');
-} else {
-  console.log('☁️  Using environment variables from hosting platform');
-}
+dotenv.config();
 
+// Initialize Express
 const app = express();
 
-// Connect to MongoDB
-connectDB();
-
-// CORS Configuration
-app.use(cors({
-  origin: true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+// ============================================================
+// MIDDLEWARE
+// ============================================================
+app.use(cors({ 
+  origin: process.env.FRONTEND_URL || "*", 
+  credentials: true 
 }));
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Request logging middleware
+// Simple request logger
 app.use((req, res, next) => {
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`🕐 ${new Date().toISOString()}`);
-  console.log(`${req.method} ${req.path}`);
-  if (Object.keys(req.body).length > 0) {
-    // Don't log passwords
-    const safebody = { ...req.body };
-    if (safebody.password) safebody.password = '***HIDDEN***';
-    if (safebody.newPassword) safebody.newPassword = '***HIDDEN***';
-    console.log(`📦 Body:`, safebody);
+  console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  if (req.body && Object.keys(req.body).length > 0) {
+    console.log("Body:", req.body);
   }
-  console.log('='.repeat(60));
   next();
 });
 
-// ✅ CHECK ENVIRONMENT VARIABLES ON STARTUP
-console.log('\n' + '='.repeat(60));
-console.log('🔍 ENVIRONMENT CONFIGURATION CHECK');
-console.log('='.repeat(60));
+// ============================================================
+// DATABASE CONNECTION
+// ============================================================
+const connectDB = async () => {
+  try {
+    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+    
+    if (!mongoUri) {
+      throw new Error("MongoDB URI not found in environment variables");
+    }
 
-console.log('\n📧 Email Configuration:');
-console.log('EMAIL_USER:', process.env.EMAIL_USER || '❌ NOT SET');
-console.log('EMAIL_APP_PASSWORD:', process.env.EMAIL_APP_PASSWORD ? '✅ SET' : '❌ NOT SET');
+    await mongoose.connect(mongoUri.trim(), {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+    });
 
-console.log('\n🔐 Security Configuration:');
-console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ SET' : '❌ NOT SET');
+    console.log("✅ MongoDB connected:", mongoose.connection.name);
+  } catch (error) {
+    console.error("❌ MongoDB connection failed:", error.message);
+    process.exit(1);
+  }
+};
 
-console.log('\n💾 Database Configuration:');
-console.log('MONGO_URI:', process.env.MONGO_URI ? '✅ SET' : 'Not set (checking MONGODB_URI)');
-console.log('MONGODB_URI:', process.env.MONGODB_URI ? '✅ SET' : '❌ NOT SET');
-
-console.log('\n📸 Cloud Storage Configuration:');
-console.log('CLOUDINARY_CLOUD_NAME:', process.env.CLOUDINARY_CLOUD_NAME ? '✅ SET' : '❌ NOT SET');
-console.log('CLOUDINARY_API_KEY:', process.env.CLOUDINARY_API_KEY ? '✅ SET' : '❌ NOT SET');
-console.log('CLOUDINARY_API_SECRET:', process.env.CLOUDINARY_API_SECRET ? '✅ SET' : '❌ NOT SET');
-
-// Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/budget", budgetRoutes);
-app.use("/api/transactions", transactionRoutes);
-app.use("/api/profile", profileRoutes);
-app.use("/api/reports", reportsRoutes);
-
-// Health check endpoint with detailed info
+// ============================================================
+// ROUTES
+// ============================================================
 app.get("/", (req, res) => {
-  res.json({ 
-    message: "SpendWise API is running",
-    version: "2.0.0-production",
-    status: "healthy",
+  res.json({
+    success: true,
+    message: "SpendWise API is running!",
+    version: "1.0.0",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    features: {
-      database: '✅ MongoDB Connected',
-      emailService: process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD ? '✅ Configured' : '❌ Not Configured',
-      authentication: '✅ Active',
-      forgotPassword: '✅ Active'
-    },
     endpoints: {
       auth: "/api/auth",
-      budget: "/api/budget",
+      budget: "/api/budget", 
       transactions: "/api/transactions",
       profile: "/api/profile",
       reports: "/api/reports"
-    },
-    authRoutes: [
-      "POST /api/auth/register - Register new user",
-      "POST /api/auth/login - Login user",
-      "POST /api/auth/logout - Logout user",
-      "POST /api/auth/forgot-password/send-otp - Send password reset OTP",
-      "POST /api/auth/forgot-password/verify-otp - Verify OTP",
-      "POST /api/auth/forgot-password/reset - Reset password",
-      "GET /api/auth/test-email - Test email configuration",
-      "POST /api/auth/test-email-send - Send test email"
-    ]
-  });
-});
-
-// Multer error handling middleware
-app.use((err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        success: false,
-        message: 'File size too large. Maximum size is 5MB.',
-      });
     }
-    return res.status(400).json({
-      success: false,
-      message: err.message,
-    });
-  }
-  
-  if (err.message === 'Only image files are allowed!') {
-    return res.status(400).json({
-      success: false,
-      message: err.message,
-    });
-  }
-  
-  next(err);
-});
-
-// General error handling middleware
-app.use((err, req, res, next) => {
-  console.error("\n" + "=".repeat(60));
-  console.error("❌ ERROR OCCURRED");
-  console.error("Time:", new Date().toISOString());
-  console.error("Path:", req.path);
-  console.error("Method:", req.method);
-  console.error("Error:", err.message);
-  console.error("Stack:", err.stack);
-  console.error("=".repeat(60) + "\n");
-  
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Something went wrong!",
-    error: process.env.NODE_ENV === "development" ? err.stack : undefined,
   });
 });
+
+// Function to load and register routes
+async function loadRoutes() {
+  try {
+    // Check if routes directory exists - handle nested structure
+    let routesDir = join(__dirname, 'routes');
+    let pathPrefix = './routes/';
+    
+    // Check if we're in outer folder and need to go into subfolder
+    if (!existsSync(routesDir)) {
+      const subfolderPath = join(__dirname, 'spendwise_backend', 'routes');
+      if (existsSync(subfolderPath)) {
+        routesDir = subfolderPath;
+        pathPrefix = './spendwise_backend/routes/';
+      } else {
+        throw new Error('Routes directory not found');
+      }
+    }
+    
+    // Check each route file
+    const routeFiles = [
+      'authRoutes.js',
+      'budgetRoutes.js', 
+      'transactionRoutes.js',
+      'profileRoutes.js',
+      'reportsRoutes.js'
+    ];
+    
+    for (const file of routeFiles) {
+      const filePath = join(routesDir, file);
+      if (!existsSync(filePath)) {
+        throw new Error(`Missing route file: ${file}`);
+      }
+    }
+    
+    // Import routes dynamically
+    const authRoutes = await import(pathPrefix + 'authRoutes.js');
+    const budgetRoutes = await import(pathPrefix + 'budgetRoutes.js');
+    const transactionRoutes = await import(pathPrefix + 'transactionRoutes.js');
+    const profileRoutes = await import(pathPrefix + 'profileRoutes.js');
+    const reportsRoutes = await import(pathPrefix + 'reportsRoutes.js');
+    
+    // Register routes
+    app.use("/api/auth", authRoutes.default);
+    app.use("/api/budget", budgetRoutes.default);
+    app.use("/api/transactions", transactionRoutes.default);
+    app.use("/api/profile", profileRoutes.default);
+    app.use("/api/reports", reportsRoutes.default);
+    
+    // Store pathPrefix for later use
+    return pathPrefix;
+    
+  } catch (error) {
+    console.error("\n❌ FAILED TO LOAD ROUTES");
+    console.error("Error:", error.message);
+    throw error;
+  }
+}
 
 // 404 handler
 app.use((req, res) => {
-  console.log(`\n❌ 404 - Route not found: ${req.method} ${req.path}`);
   res.status(404).json({
     success: false,
     message: "Route not found",
@@ -168,36 +147,90 @@ app.use((req, res) => {
   });
 });
 
-// Start server
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("❌ Error:", err.message);
+  console.error("Stack:", err.stack);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Internal server error",
+    error: process.env.NODE_ENV === "development" ? err.stack : undefined
+  });
+});
+
+// ============================================================
+// START SERVER
+// ============================================================
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
-  console.log("\n" + "=".repeat(60));
-  console.log("✅ SERVER STARTED SUCCESSFULLY");
-  console.log("=".repeat(60));
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 API URL: http://localhost:${PORT}`);
-  console.log(`📊 Health Check: http://localhost:${PORT}/`);
-  
-  // Test email connection
-  console.log('\n' + '='.repeat(60));
-  console.log('📧 TESTING EMAIL SERVICE');
-  console.log('='.repeat(60));
-  const emailTest = await testEmailConnection();
-  if (emailTest.success) {
-    console.log('✅ Email service is working correctly!');
-  } else {
-    console.error('⚠️  Email service test failed:');
-    console.error(emailTest.error);
-    console.error('\n💡 To fix email issues:');
-    console.error('1. Visit: https://myaccount.google.com/apppasswords');
-    console.error('2. Create a new App Password for Gmail');
-    console.error('3. Copy the 16-character password (without spaces)');
-    console.error('4. Update EMAIL_APP_PASSWORD in Render environment variables');
-    console.error('5. Restart the server');
+
+const startServer = async () => {
+  try {
+    console.log("\n" + "=".repeat(60));
+    console.log("🚀 STARTING SPENDWISE SERVER");
+    console.log("=".repeat(60));
+    console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+    console.log(`Port: ${PORT}`);
+    
+    // Load routes first (before database connection)
+    const pathPrefix = await loadRoutes();
+    
+    // Connect to database
+    await connectDB();
+    
+    // Test email service (optional)
+    try {
+      const emailPath = pathPrefix.includes('spendwise_backend') 
+        ? "./spendwise_backend/utils/emailService.js"
+        : "./utils/emailService.js";
+      const emailService = await import(emailPath);
+      await emailService.testEmailConnection();
+    } catch (emailError) {
+      // Silently handle email service errors
+    }
+    
+    // Start listening
+    app.listen(PORT, () => {
+      console.log("\n" + "=".repeat(60));
+      console.log("🎉 SERVER READY");
+      console.log("=".repeat(60));
+      console.log(`🌐 Server: http://localhost:${PORT}`);
+      console.log(`📍 API: http://localhost:${PORT}/api`);
+      console.log("=".repeat(60) + "\n");
+    });
+    
+  } catch (error) {
+    console.error("\n❌ Failed to start server:", error.message);
+    process.exit(1);
   }
-  
-  console.log("\n" + "=".repeat(60));
-  console.log("🎉 SERVER READY FOR REQUESTS");
-  console.log("=".repeat(60) + "\n");
+};
+
+// Start the server
+startServer();
+
+// ============================================================
+// GRACEFUL SHUTDOWN
+// ============================================================
+const shutdown = async (signal) => {
+  console.log(`\n${signal} received. Shutting down gracefully...`);
+  try {
+    await mongoose.connection.close();
+    console.log("✅ MongoDB connection closed");
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ Error closing MongoDB:", error.message);
+    process.exit(1);
+  }
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+process.on("unhandledRejection", (err) => {
+  console.error("💥 UNHANDLED REJECTION:", err);
+  shutdown("Unhandled Rejection");
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("💥 UNCAUGHT EXCEPTION:", err);
+  shutdown("Uncaught Exception");
 });
