@@ -1,4 +1,4 @@
-// spendwise_backend/routes/authRoutes.js - CLEAN VERSION
+// routes/authRoutes.js - FIXED VERSION WITH PROPER ROUTE REGISTRATION
 import express from "express";
 import { registerUser, loginUser, logoutUser } from "../controllers/authController.js";
 import { sendOTP, verifyOTP, resetPassword } from "../controllers/forgotPasswordController.js";
@@ -10,13 +10,13 @@ const router = express.Router();
 // Basic logging middleware
 router.use((req, res, next) => {
   console.log("\n" + "=".repeat(60));
-  console.log("📥 INCOMING REQUEST");
+  console.log("🔥 INCOMING AUTH REQUEST");
   console.log(`Time: ${new Date().toISOString()}`);
   console.log(`Method: ${req.method}`);
   console.log(`Path: ${req.path}`);
   console.log(`Full URL: ${req.protocol}://${req.get('host')}${req.originalUrl}`);
   if (Object.keys(req.body).length > 0) {
-    console.log(`Body:`, req.body);
+    console.log(`Body:`, JSON.stringify(req.body, null, 2));
   }
   console.log("=".repeat(60));
   next();
@@ -24,22 +24,64 @@ router.use((req, res, next) => {
 
 // ========== PUBLIC ROUTES ==========
 
-// Register
-router.post("/register", registerUser);
+// Health check - should be FIRST
+router.get("/health", (req, res) => {
+  res.json({ 
+    success: true,
+    message: "Auth service is running",
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      register: "POST /api/auth/register",
+      login: "POST /api/auth/login",
+      sendOTP: "POST /api/auth/forgot-password/send-otp",
+      verifyOTP: "POST /api/auth/forgot-password/verify-otp",
+      resetPassword: "POST /api/auth/forgot-password/reset",
+    }
+  });
+});
+
+// Register - CRITICAL: This must match /api/auth/register
+router.post("/register", (req, res, next) => {
+  console.log("✅ REGISTER route hit!");
+  console.log("Body received:", req.body);
+  next();
+}, registerUser);
 
 // Login
-router.post("/login", loginUser);
+router.post("/login", (req, res, next) => {
+  console.log("✅ LOGIN route hit!");
+  console.log("Body received:", req.body);
+  next();
+}, loginUser);
 
 // ========== FORGOT PASSWORD ROUTES ==========
 
 // Send OTP for password reset
-router.post("/forgot-password/send-otp", sendOTP);
+router.post("/forgot-password/send-otp", (req, res, next) => {
+  console.log("✅ SEND OTP route hit!");
+  next();
+}, sendOTP);
 
 // Verify OTP
-router.post("/forgot-password/verify-otp", verifyOTP);
+router.post("/forgot-password/verify-otp", (req, res, next) => {
+  console.log("✅ VERIFY OTP route hit!");
+  next();
+}, verifyOTP);
 
 // Reset password
-router.post("/forgot-password/reset", resetPassword);
+router.post("/forgot-password/reset", (req, res, next) => {
+  console.log("✅ RESET PASSWORD route hit!");
+  next();
+}, resetPassword);
+
+// Test forgot password routes
+router.get("/forgot-password/test", (req, res) => {
+  res.json({ 
+    success: true,
+    message: "Forgot password routes are working correctly!",
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // ========== EMAIL SERVICE TESTING ROUTES ==========
 
@@ -53,12 +95,6 @@ router.get("/test-email", async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      tips: [
-        "Make sure EMAIL_USER is set",
-        "Make sure EMAIL_APP_PASSWORD is set (Gmail App Password, not regular password)",
-        "Ensure 2FA is enabled on Gmail account",
-        "Check environment variables in Render Dashboard"
-      ]
     });
   }
 });
@@ -90,50 +126,8 @@ router.post("/test-email-send", async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      troubleshooting: {
-        issue: "Email sending failed",
-        commonCauses: [
-          "Gmail credentials not configured",
-          "EMAIL_APP_PASSWORD is wrong",
-          "2FA not enabled on Gmail",
-          "Less secure apps enabled (should use App Password instead)"
-        ],
-        solution: "Visit https://myaccount.google.com/apppasswords to create App Password"
-      }
     });
   }
-});
-
-// Health check endpoint
-router.get("/health", (req, res) => {
-  res.json({ 
-    success: true,
-    message: "Auth service is running",
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      register: "POST /api/auth/register",
-      login: "POST /api/auth/login",
-      sendOTP: "POST /api/auth/forgot-password/send-otp",
-      verifyOTP: "POST /api/auth/forgot-password/verify-otp",
-      resetPassword: "POST /api/auth/forgot-password/reset",
-      testEmail: "GET /api/auth/test-email",
-      testEmailSend: "POST /api/auth/test-email-send"
-    }
-  });
-});
-
-// Test route to verify forgot password routes are working
-router.get("/forgot-password/test", (req, res) => {
-  res.json({ 
-    success: true,
-    message: "Forgot password routes are working correctly!",
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      sendOTP: "POST /api/auth/forgot-password/send-otp",
-      verifyOTP: "POST /api/auth/forgot-password/verify-otp",
-      resetPassword: "POST /api/auth/forgot-password/reset"
-    }
-  });
 });
 
 // ========== PROTECTED ROUTES ==========

@@ -1,4 +1,3 @@
-// config/db.js - MongoDB Connection
 import mongoose from "mongoose";
 
 const connectDB = async () => {
@@ -19,9 +18,9 @@ const connectDB = async () => {
         Object.keys(process.env).filter(k => k.includes('MONGO'))
       );
       console.error("\n💡 Solutions:");
-      console.error("  1. Create a .env file in your project root");
-      console.error("  2. Add: MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/database");
-      console.error("  3. For Render: Add MONGO_URI in Environment tab");
+      console.error("  1. In Render Dashboard, go to Environment tab");
+      console.error("  2. Add variable: MONGO_URI");
+      console.error("  3. Value: mongodb+srv://username:password@cluster.mongodb.net/database");
       process.exit(1);
     }
 
@@ -39,9 +38,9 @@ const connectDB = async () => {
     // Hide password in logs (for security)
     const safeUri = mongoUri.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@');
     console.log("🔄 Connecting to MongoDB...");
-    console.log("🔗 URI:", safeUri);
+    console.log("📍 URI:", safeUri);
 
-    // Connect to MongoDB with proper options
+    // Connect to MongoDB
     await mongoose.connect(mongoUri, {
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
@@ -61,7 +60,6 @@ const connectDB = async () => {
       console.error("  1. Username and password are correct in MongoDB Atlas");
       console.error("  2. User has 'readWrite' permissions for the database");
       console.error("  3. Password doesn't contain unencoded special characters");
-      console.error("  4. Use MongoDB's URL encoder for special characters");
     } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
       console.error("\n💡 Network Error - Check:");
       console.error("  1. MongoDB cluster URL is correct");
@@ -73,7 +71,7 @@ const connectDB = async () => {
       console.error("  2. Add 0.0.0.0/0 to allow all IPs (or Render's specific IPs)");
     } else if (error.message.includes('openUri') || error.message.includes('must be a string')) {
       console.error("\n💡 Connection String Error - Check:");
-      console.error("  1. MONGO_URI or MONGODB_URI is set in .env file");
+      console.error("  1. MONGO_URI or MONGODB_URI is set in Render Environment");
       console.error("  2. The value is a complete MongoDB connection string");
       console.error("  3. Format: mongodb+srv://user:pass@cluster.mongodb.net/dbname");
     }
