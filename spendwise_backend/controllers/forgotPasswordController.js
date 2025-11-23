@@ -1,4 +1,4 @@
-// spendwise_backend/controllers/forgotPasswordController.js - COMPLETE ENHANCED VERSION
+// spendwise_backend/controllers/forgotPasswordController.js
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
 import OTP from "../models/otp.js";
@@ -41,7 +41,7 @@ export const sendOTP = async (req, res) => {
       console.log("=".repeat(70) + "\n");
       return res.status(404).json({
         success: false,
-        message: "No account found with this email"
+        message: "No account found with this email. Please sign up first."
       });
     }
 
@@ -107,10 +107,6 @@ export const sendOTP = async (req, res) => {
         console.error(`\n💡 CONNECTION ERROR`);
         console.error(`   Problem: Cannot connect to Gmail SMTP server`);
         console.error(`   Solution: Check internet connection or firewall settings`);
-      } else if (emailErrorInstance.message.includes('Greeting never received')) {
-        console.error(`\n💡 SMTP CONNECTION ERROR`);
-        console.error(`   Problem: SMTP server not responding`);
-        console.error(`   Solution: Check if port 587 is blocked`);
       }
       
       console.error(`\n⚠️  OTP is saved in database, but email delivery failed`);
@@ -170,51 +166,36 @@ export const verifyOTP = async (req, res) => {
     console.log("\n" + "=".repeat(70));
     console.log("🔐 VERIFY OTP REQUEST STARTED");
     console.log("=".repeat(70));
-    console.log("⏰ Timestamp:", new Date().toISOString());
     
     const { email, otp } = req.body;
 
-    // Validation
     if (!email || !otp) {
-      console.log("❌ FAILED: Email or OTP missing");
-      console.log(`   Email provided: ${!!email}`);
-      console.log(`   OTP provided: ${!!otp}`);
+      console.log("❌ Email or OTP missing");
       return res.status(400).json({
         success: false,
         message: "Email and OTP are required"
       });
     }
 
-    // Validate OTP format
     if (otp.length !== 6 || isNaN(otp)) {
-      console.log(`❌ FAILED: Invalid OTP format`);
-      console.log(`   OTP received: ${otp}`);
-      console.log(`   OTP length: ${otp.length}`);
+      console.log(`❌ Invalid OTP format: ${otp}`);
       return res.status(400).json({
         success: false,
         message: "OTP must be 6 digits"
       });
     }
 
-    console.log(`📧 Email: ${email}`);
-    console.log(`🔢 OTP: ${otp}`);
-    console.log(`🔍 Searching for user...`);
+    console.log(`📧 Verifying OTP for: ${email}`);
 
-    // Find user
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      console.log(`❌ USER NOT FOUND: ${email}`);
-      console.log("=".repeat(70) + "\n");
+      console.log(`❌ User not found: ${email}`);
       return res.status(404).json({
         success: false,
         message: "User not found"
       });
     }
 
-    console.log(`✅ User found: ${user._id}`);
-    console.log(`🔍 Searching for OTP record...`);
-
-    // Find OTP record
     const otpRecord = await OTP.findOne({
       userId: user._id,
       otp: otp,
@@ -222,65 +203,33 @@ export const verifyOTP = async (req, res) => {
     });
 
     if (!otpRecord) {
-      console.log(`❌ OTP NOT FOUND or ALREADY VERIFIED`);
-      console.log(`   User ID: ${user._id}`);
-      console.log(`   OTP: ${otp}`);
-      console.log(`💡 Possible reasons:`);
-      console.log(`   - OTP is incorrect`);
-      console.log(`   - OTP was already used`);
-      console.log(`   - OTP has expired and was deleted`);
-      console.log("=".repeat(70) + "\n");
+      console.log(`❌ Invalid OTP`);
       return res.status(400).json({
         success: false,
         message: "Invalid OTP"
       });
     }
 
-    console.log(`✅ OTP record found`);
-    console.log(`   Created at: ${otpRecord.createdAt}`);
-    console.log(`   Expires at: ${otpRecord.expiresAt}`);
-
-    // Check if OTP is expired
     const now = new Date();
     if (now > otpRecord.expiresAt) {
-      const expiredMinutes = Math.round((now - otpRecord.expiresAt) / 1000 / 60);
-      console.log(`❌ OTP EXPIRED`);
-      console.log(`   Current time: ${now.toISOString()}`);
-      console.log(`   Expired at: ${otpRecord.expiresAt.toISOString()}`);
-      console.log(`   Expired ${expiredMinutes} minute(s) ago`);
-      
+      console.log(`❌ OTP expired`);
       await OTP.deleteOne({ _id: otpRecord._id });
-      console.log(`🗑️  Expired OTP deleted from database`);
-      console.log("=".repeat(70) + "\n");
-      
       return res.status(400).json({
         success: false,
         message: "OTP has expired. Please request a new one"
       });
     }
 
-    const remainingSeconds = Math.round((otpRecord.expiresAt - now) / 1000);
-    const remainingMinutes = Math.floor(remainingSeconds / 60);
-    console.log(`✅ OTP is still valid`);
-    console.log(`   Remaining time: ${remainingMinutes}m ${remainingSeconds % 60}s`);
-
-    // Mark OTP as verified
     otpRecord.verified = true;
     await otpRecord.save();
-    console.log(`✅ OTP verified and marked as used`);
+    console.log(`✅ OTP verified successfully`);
 
-    // Generate a temporary reset token (valid for 15 minutes)
     const resetToken = jwt.sign(
       { userId: user._id, email: user.email },
       process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
 
-    console.log(`✅ Reset token generated`);
-    console.log(`   Valid for: 15 minutes`);
-    console.log(`\n📤 SENDING RESPONSE TO CLIENT`);
-    console.log("=".repeat(70));
-    console.log("✅ VERIFY OTP REQUEST COMPLETED");
     console.log("=".repeat(70) + "\n");
 
     res.status(200).json({
@@ -290,14 +239,7 @@ export const verifyOTP = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("\n" + "=".repeat(70));
-    console.error("💥 VERIFY OTP ERROR - EXCEPTION CAUGHT");
-    console.error("=".repeat(70));
-    console.error("Error Type:", error.name);
-    console.error("Error Message:", error.message);
-    console.error("Stack Trace:", error.stack);
-    console.error("=".repeat(70) + "\n");
-    
+    console.error("❌ Verify OTP Error:", error.message);
     res.status(500).json({
       success: false,
       message: "Failed to verify OTP",
@@ -312,52 +254,36 @@ export const resetPassword = async (req, res) => {
     console.log("\n" + "=".repeat(70));
     console.log("🔄 RESET PASSWORD REQUEST STARTED");
     console.log("=".repeat(70));
-    console.log("⏰ Timestamp:", new Date().toISOString());
     
     const { email, otp, newPassword } = req.body;
 
-    // Validation
     if (!email || !otp || !newPassword) {
-      console.log("❌ FAILED: Missing required fields");
-      console.log(`   Email provided: ${!!email}`);
-      console.log(`   OTP provided: ${!!otp}`);
-      console.log(`   New password provided: ${!!newPassword}`);
-      
+      console.log("❌ Missing required fields");
       return res.status(400).json({
         success: false,
         message: "Email, OTP, and new password are required"
       });
     }
 
-    // Validate password length
     if (newPassword.length < 6) {
-      console.log(`❌ FAILED: Password too short (${newPassword.length} chars)`);
+      console.log(`❌ Password too short: ${newPassword.length} chars`);
       return res.status(400).json({
         success: false,
         message: "Password must be at least 6 characters"
       });
     }
 
-    console.log(`📧 Email: ${email}`);
-    console.log(`🔢 OTP: ${otp}`);
-    console.log(`🔐 New password length: ${newPassword.length} chars`);
-    console.log(`🔍 Searching for user...`);
+    console.log(`📧 Resetting password for: ${email}`);
 
-    // Find user
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      console.log(`❌ USER NOT FOUND: ${email}`);
-      console.log("=".repeat(70) + "\n");
+      console.log(`❌ User not found: ${email}`);
       return res.status(404).json({
         success: false,
         message: "User not found"
       });
     }
 
-    console.log(`✅ User found: ${user._id}`);
-    console.log(`🔍 Verifying OTP...`);
-
-    // Verify OTP is verified
     const otpRecord = await OTP.findOne({
       userId: user._id,
       otp: otp,
@@ -365,54 +291,32 @@ export const resetPassword = async (req, res) => {
     });
 
     if (!otpRecord) {
-      console.log(`❌ OTP NOT FOUND or NOT VERIFIED`);
-      console.log(`💡 User must verify OTP first before resetting password`);
-      console.log("=".repeat(70) + "\n");
+      console.log(`❌ Invalid or unverified OTP`);
       return res.status(400).json({
         success: false,
         message: "Invalid or unverified OTP"
       });
     }
 
-    console.log(`✅ OTP verified`);
-
-    // Check if OTP is expired
     const now = new Date();
     if (now > otpRecord.expiresAt) {
-      console.log(`❌ OTP EXPIRED`);
-      console.log(`   Current time: ${now.toISOString()}`);
-      console.log(`   Expired at: ${otpRecord.expiresAt.toISOString()}`);
-      
+      console.log(`❌ OTP expired`);
       await OTP.deleteOne({ _id: otpRecord._id });
-      console.log(`🗑️  Expired OTP deleted`);
-      console.log("=".repeat(70) + "\n");
-      
       return res.status(400).json({
         success: false,
         message: "OTP has expired. Please request a new one"
       });
     }
 
-    // Update password (pre-save hook will hash it)
-    console.log(`🔐 Updating password...`);
-    const oldPasswordHash = user.password;
     user.password = newPassword;
     await user.save();
-    
     console.log(`✅ Password updated successfully`);
-    console.log(`   Old hash: ${oldPasswordHash.substring(0, 20)}...`);
-    console.log(`   New hash: ${user.password.substring(0, 20)}...`);
 
-    // Delete used OTP
     await OTP.deleteOne({ _id: otpRecord._id });
-    console.log(`🗑️  Used OTP deleted from database`);
+    console.log(`🗑️  Used OTP deleted`);
 
-    console.log("\n📤 SENDING SUCCESS RESPONSE TO CLIENT");
     console.log("=".repeat(70));
-    console.log("✅ ✅ ✅ PASSWORD RESET SUCCESSFUL ✅ ✅ ✅");
-    console.log("=".repeat(70));
-    console.log(`👤 User: ${user.email}`);
-    console.log(`🔐 Can now login with new password`);
+    console.log("✅ PASSWORD RESET SUCCESSFUL");
     console.log("=".repeat(70) + "\n");
 
     res.status(200).json({
@@ -421,14 +325,7 @@ export const resetPassword = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("\n" + "=".repeat(70));
-    console.error("💥 RESET PASSWORD ERROR - EXCEPTION CAUGHT");
-    console.error("=".repeat(70));
-    console.error("Error Type:", error.name);
-    console.error("Error Message:", error.message);
-    console.error("Stack Trace:", error.stack);
-    console.error("=".repeat(70) + "\n");
-    
+    console.error("❌ Reset Password Error:", error.message);
     res.status(500).json({
       success: false,
       message: "Failed to reset password",
