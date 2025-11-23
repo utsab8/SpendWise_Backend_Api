@@ -1,15 +1,28 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
+import multer from "multer";
+import connectDB from "./spendwise_backend/config/db.js";
+import authRoutes from "./spendwise_backend/routes/authRoutes.js";
+import budgetRoutes from "./spendwise_backend/routes/budgetRoutes.js";
+import transactionRoutes from "./spendwise_backend/routes/transactionRoutes.js";
+import profileRoutes from "./spendwise_backend/routes/profileRoutes.js";
+import reportsRoutes from "./spendwise_backend/routes/reportsRoutes.js";
 
-// ✅ Only load .env in development
+// Load environment variables
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
+  console.log('📂 Loaded .env file (development mode)');
+} else {
+  console.log('☁️  Using environment variables from hosting platform');
 }
 
 const app = express();
 
-// CORS
+// Connect to MongoDB
+connectDB();
+
+// CORS Configuration
 app.use(cors({
   origin: true,
   credentials: true,
@@ -17,217 +30,129 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Body parsing
+// Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ✅ DETAILED REQUEST LOGGING
+// Request logging middleware
 app.use((req, res, next) => {
-  console.log('\n' + '='.repeat(60));
-  console.log(`📥 INCOMING REQUEST`);
-  console.log(`Time: ${new Date().toISOString()}`);
-  console.log(`Method: ${req.method}`);
-  console.log(`Path: ${req.path}`);
-  console.log(`Full URL: ${req.protocol}://${req.get('host')}${req.originalUrl}`);
-  console.log(`Body:`, JSON.stringify(req.body));
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`📥 ${new Date().toISOString()}`);
+  console.log(`${req.method} ${req.path}`);
+  console.log(`Body:`, req.body);
   console.log('='.repeat(60));
   next();
 });
 
-// ✅ INLINE ROUTES FOR TESTING (bypass import issues)
-const authRouter = express.Router();
+// ✅ CHECK ENVIRONMENT VARIABLES ON STARTUP
+console.log('\n🔍 Checking Email Configuration:');
+console.log('EMAIL_USER:', process.env.EMAIL_USER || '❌ NOT SET');
+console.log('EMAIL_APP_PASSWORD:', process.env.EMAIL_APP_PASSWORD ? '✅ SET' : '❌ NOT SET');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ SET' : '❌ NOT SET');
+console.log('MONGODB_URI:', process.env.MONGODB_URI ? '✅ SET' : '❌ NOT SET');
 
-// Test route
-authRouter.get('/forgot-password/test', (req, res) => {
-  console.log('✅ Test route hit!');
-  res.json({
-    success: true,
-    message: 'Forgot password routes are working!',
-    timestamp: new Date().toISOString()
-  });
-});
+// Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/budget", budgetRoutes);
+app.use("/api/transactions", transactionRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/reports", reportsRoutes);
 
-// Send OTP route
-authRouter.post('/forgot-password/send-otp', async (req, res) => {
-  console.log('🔥 Send OTP endpoint hit!');
-  console.log('Body:', req.body);
-  
-  const { email } = req.body;
-  
-  if (!email) {
-    return res.status(400).json({
-      success: false,
-      message: 'Email is required'
-    });
-  }
-  
-  // Generate OTP (for testing - no database)
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-  
-  console.log(`Generated OTP: ${otpCode}`);
-  
-  res.status(200).json({
-    success: true,
-    message: 'OTP sent successfully',
-    otp: otpCode // For testing only
-  });
-});
-
-// Register route
-authRouter.post('/register', (req, res) => {
-  console.log('📝 Register endpoint hit!');
-  res.json({
-    success: true,
-    message: 'Register route working'
-  });
-});
-
-// Login route
-authRouter.post('/login', (req, res) => {
-  console.log('🔐 Login endpoint hit!');
-  res.json({
-    success: true,
-    message: 'Login route working'
-  });
-});
-
-// ✅ DIRECT ROUTES (NO ROUTER) - ABSOLUTE PATHS
-app.post('/api/auth/forgot-password/send-otp', async (req, res) => {
-  console.log('🔥🔥🔥 DIRECT ROUTE HIT - Send OTP!');
-  console.log('Body:', req.body);
-  
-  const { email } = req.body;
-  
-  if (!email) {
-    return res.status(400).json({
-      success: false,
-      message: 'Email is required'
-    });
-  }
-  
-  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-  console.log(`Generated OTP: ${otpCode} for ${email}`);
-  
-  res.status(200).json({
-    success: true,
-    message: 'OTP sent successfully',
-    otp: otpCode,
-    email: email
-  });
-});
-
-app.get('/api/auth/forgot-password/test', (req, res) => {
-  console.log('✅✅✅ DIRECT TEST ROUTE HIT!');
-  res.json({
-    success: true,
-    message: 'Direct forgot password test route working!',
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.post('/api/auth/register', (req, res) => {
-  console.log('📝 Direct register endpoint hit!');
-  res.json({
-    success: true,
-    message: 'Direct register route working',
-    body: req.body
-  });
-});
-
-app.post('/api/auth/login', (req, res) => {
-  console.log('🔐 Direct login endpoint hit!');
-  res.json({
-    success: true,
-    message: 'Direct login route working',
-    body: req.body
-  });
-});
-
-// ✅ ALSO MOUNT THE ROUTER (as backup)
-app.use('/api/auth', authRouter);
-
-// Health check
-app.get('/', (req, res) => {
-  console.log('❤️ Health check called');
-  res.json({
-    success: true,
-    message: 'SpendWise API is running - DIAGNOSTIC MODE',
-    version: '1.5.1-diagnostic-direct-routes',
+// Health check endpoint
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "SpendWise API is running",
+    version: "2.0.0-production",
+    status: "healthy",
     timestamp: new Date().toISOString(),
-    note: 'Using direct route mounting for debugging',
-    routes: {
-      health: 'GET /',
-      test: 'GET /api/auth/forgot-password/test',
-      sendOtp: 'POST /api/auth/forgot-password/send-otp',
-      register: 'POST /api/auth/register',
-      login: 'POST /api/auth/login'
+    environment: process.env.NODE_ENV || 'development',
+    features: {
+      database: '✅ MongoDB Connected',
+      emailService: process.env.EMAIL_USER ? '✅ Configured' : '❌ Not Configured',
+      authentication: '✅ Active',
+      forgotPassword: '✅ Active'
+    },
+    endpoints: {
+      auth: "/api/auth",
+      authRoutes: [
+        "POST /api/auth/register",
+        "POST /api/auth/login",
+        "POST /api/auth/logout",
+        "POST /api/auth/forgot-password/send-otp",
+        "POST /api/auth/forgot-password/verify-otp",
+        "POST /api/auth/forgot-password/reset"
+      ],
+      budget: "/api/budget",
+      transactions: "/api/transactions",
+      profile: "/api/profile",
+      reports: "/api/reports"
     }
   });
 });
 
-// Test endpoint
-app.get('/api/test', (req, res) => {
-  console.log('🧪 Test endpoint called');
-  res.json({
-    success: true,
-    message: 'API test successful!',
-    timestamp: new Date().toISOString()
+// Multer error handling middleware
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'File size too large. Maximum size is 5MB.',
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+  
+  if (err.message === 'Only image files are allowed!') {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+  
+  next(err);
+});
+
+// General error handling middleware
+app.use((err, req, res, next) => {
+  console.error("\n" + "=".repeat(60));
+  console.error("❌ ERROR OCCURRED");
+  console.error("Time:", new Date().toISOString());
+  console.error("Path:", req.path);
+  console.error("Method:", req.method);
+  console.error("Error:", err.message);
+  console.error("Stack:", err.stack);
+  console.error("=".repeat(60) + "\n");
+  
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Something went wrong!",
+    error: process.env.NODE_ENV === "development" ? err.stack : undefined,
   });
 });
 
 // 404 handler
 app.use((req, res) => {
-  console.log('\n❌ 404 ERROR');
-  console.log(`Route not found: ${req.method} ${req.path}`);
-  console.log(`Full URL: ${req.protocol}://${req.get('host')}${req.originalUrl}`);
-  
+  console.log(`\n❌ 404 - Route not found: ${req.method} ${req.path}`);
   res.status(404).json({
     success: false,
-    message: 'Route not found',
-    requested: {
-      method: req.method,
-      path: req.path,
-      fullUrl: req.originalUrl
-    },
-    availableRoutes: {
-      health: 'GET /',
-      test: 'GET /api/test',
-      authTest: 'GET /api/auth/forgot-password/test',
-      sendOtp: 'POST /api/auth/forgot-password/send-otp',
-      register: 'POST /api/auth/register',
-      login: 'POST /api/auth/login'
-    }
-  });
-});
-
-// Error handler
-app.use((err, req, res, next) => {
-  console.error('\n❌ ERROR HANDLER');
-  console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
-  
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Something went wrong!',
-    error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    message: "Route not found",
+    path: req.path,
+    method: req.method
   });
 });
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log('\n' + '='.repeat(60));
-  console.log('✅ SERVER STARTED SUCCESSFULLY');
-  console.log('='.repeat(60));
+  console.log("\n" + "=".repeat(60));
+  console.log("✅ SERVER STARTED SUCCESSFULLY");
+  console.log("=".repeat(60));
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌍 Base URL: http://localhost:${PORT}`);
-  console.log('\n📋 Available Routes:');
-  console.log('   GET  /');
-  console.log('   GET  /api/test');
-  console.log('   GET  /api/auth/forgot-password/test');
-  console.log('   POST /api/auth/forgot-password/send-otp');
-  console.log('   POST /api/auth/register');
-  console.log('   POST /api/auth/login');
-  console.log('='.repeat(60) + '\n');
+  console.log(`🌍 API URL: http://localhost:${PORT}`);
+  console.log(`📊 Health Check: http://localhost:${PORT}/`);
+  console.log("=".repeat(60) + "\n");
 });
